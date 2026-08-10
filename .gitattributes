@@ -1,0 +1,1 @@
+distribution/plugins/banana-split-v1/runtime/banana.exe filter=lfs diff=lfs merge=lfs -text
