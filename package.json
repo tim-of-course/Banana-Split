@@ -2,6 +2,15 @@
   "name": "banana-split",
   "version": "1.0.0",
   "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tim-of-course/Banana-Split.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tim-of-course/Banana-Split/issues"
+  },
+  "homepage": "https://github.com/tim-of-course/Banana-Split#readme",
   "type": "module",
   "scripts": {
     "build": "bun build --compile --target=bun-windows-x64 --outfile dist/banana.exe src/index.ts",

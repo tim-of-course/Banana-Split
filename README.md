@@ -4,6 +4,8 @@ Banana Split is a Windows 11 x64 Codex plugin for durable, recursive managed-age
 
 The normative product contract is [`docs/BANANA_SPLIT_V1_SPEC.md`](docs/BANANA_SPLIT_V1_SPEC.md). The shipped runtime is [`distribution/plugins/banana-split-v1/runtime/banana.exe`](distribution/plugins/banana-split-v1/runtime/banana.exe).
 
+This is a V1 release for Windows 11 x64. Bug reports and focused pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Please report security issues according to [SECURITY.md](SECURITY.md).
+
 ## Requirements and build
 
 - Windows 11 x64
@@ -83,3 +85,7 @@ The store alternates two flushed checkpoints and loads the newest valid generati
 - `reconciliation_required`: inspect the retained agent and Codex transcript, then explicitly cancel or resolve the affected work.
 
 To remove retained private state, first stop the Banana runtime, verify the exact configured `data_directory`, and delete that directory manually. Cancellation does not roll back filesystem, network, approval, or host-side effects.
+
+## License
+
+Banana Split is available under the [MIT License](LICENSE).
