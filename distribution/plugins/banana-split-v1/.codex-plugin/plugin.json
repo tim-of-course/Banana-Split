@@ -1,0 +1,25 @@
+{
+  "name": "banana-split-v1",
+  "version": "1.0.0+codex.20260901182706",
+  "description": "Durable recursive Codex agent workflows with bounded active-turn capacity.",
+  "author": {
+    "name": "Banana Split"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Banana Split V1",
+    "shortDescription": "Run durable recursive Codex workflows.",
+    "longDescription": "Banana Split runs independent fresh or inherited Codex agents with durable scheduling, messaging, advice, parent review, and a host-controlled Computer Use bridge.",
+    "developerName": "Banana Split",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Use Banana Split to complete this task with recursive agents.",
+      "Run this complex task as a durable Banana Split workflow."
+    ]
+  },
+  "mcpServers": "./.mcp.json"
+}

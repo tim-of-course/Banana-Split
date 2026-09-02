@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "runtime": {
+    "data_directory": "../.banana-test/live-state",
+    "listen_port": 43892,
+    "scheduler": { "max_active_turns": 2 },
+    "permission_ceiling": {
+      "sandbox": "workspaceWrite",
+      "network_access": false,
+      "approval_policy": "onRequest",
+      "approval_reviewer": "host"
+    },
+    "host_capabilities": { "computer_use": true },
+    "codex_command": "codex"
+  },
+  "workflow_defaults": {
+    "default_preset": "sol-high",
+    "presets": {
+      "sol-xhigh": { "model": "gpt-5.6-sol", "reasoning_effort": "xhigh" },
+      "sol-high": { "model": "gpt-5.6-sol", "reasoning_effort": "high" },
+      "sol-medium": { "model": "gpt-5.6-sol", "reasoning_effort": "medium" }
+    },
+    "preset_recommendations": {}
+  }
+}

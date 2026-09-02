@@ -4,6 +4,10 @@
 
 Status: normative V1 build specification
 
+Product version: 1
+
+Specification revision: 2
+
 Delivery contract: one feature-complete, production-quality implementation
 
 Hardening posture: deliberately narrow supported operating envelope
@@ -22,7 +26,7 @@ V1 has no MVP subset or acceptable partial-delivery milestone. It is complete on
 - Lean means the implementation uses the smallest clear state model and the fewest abstractions and branches that satisfy this specification.
 - Feature completeness does not imply broad hardening. V1 supports the stated flows and critical safety boundaries, not every hypothetical input, race, platform variation, or recovery strategy.
 
-The intended V1 operating envelope is one trusted local Windows user, one main Codex host task, one local Banana runtime, one workspace per workflow, multiple workflows in that runtime, and one explicitly supported Codex App Server capability set. Hostile multi-tenancy, distributed runtime coordination, high availability, rolling upgrades, legacy compatibility, automated schema migration across released versions, and exhaustive malformed-input recovery are outside V1.
+The intended V1 operating envelope is one trusted local Windows user, one main Codex host task, one local Banana runtime, one workspace per workflow, multiple workflows in that runtime, and the current Codex installation on the build and test machine. Hostile multi-tenancy, distributed runtime coordination, high availability, rolling upgrades, legacy compatibility, automated schema migration across released versions, and exhaustive malformed-input recovery are outside V1.
 
 Within that envelope, failures must be honest and leave inspectable state. Outside it, a concise actionable error or safe stop is preferred to automatic repair, fallback, retry, or speculative edge-case machinery. Broad hardening begins only after explicit owner direction informed by real use.
 
@@ -30,12 +34,14 @@ Within that envelope, failures must be honest and leave inspectable state. Outsi
 
 V1 supports Windows 11 x64. The installed product contains:
 
-- A Codex plugin and host skill used from the main Codex task
-- A bundled local Banana runtime and Codex App Server adapter
+- A locally installable personal Codex plugin and host skill used from the main Codex task
+- A bundled self-contained Windows x64 Banana runtime and Codex App Server adapter
 - The agent and host tool surfaces defined in sections 20 and 21
 - One private durable-data directory and one startup configuration file
 - Read-only `watch`, `inspect`, and `transcript` CLI commands
 - Installation, configuration, operation, recovery, and troubleshooting documentation
+
+V1 is installed through a personal or local Codex marketplace. A signed installer, public marketplace release, enterprise deployment system, and signing certificate are outside V1.
 
 The host skill starts or reconnects to the one local runtime and drives the poll/respond loop from the main Codex task. The runtime may own multiple workflows, but V1 does not support two Banana runtime instances operating concurrently for the same user. `max_active_turns`, runnable ordering, Computer Use serialization, approval routing, and workflow discovery are runtime-wide.
 
@@ -60,7 +66,7 @@ The runtime exists to make model-designed workflows mechanically dependable:
 - Advice requests and review decisions cannot be lost or confused with unrelated messages.
 - A child can request a host-only capability without pretending it owns that capability.
 - Model routing is explicit and observable.
-- Permissions never exceed the trusted host ceiling.
+- Managed-agent permissions never exceed the user-configured runtime ceiling.
 - Workflow identity and useful partial results survive a runtime interruption.
 
 ## 3. Design principles
@@ -102,7 +108,7 @@ Named presets contain model execution settings only:
 
 - Model
 - Reasoning effort
-- Service tier
+- Optional service tier or speed mode
 
 Permission restrictions are orthogonal and explicit. They are not hidden inside a model preset.
 
@@ -190,7 +196,7 @@ This is capability delegation, not authority delegation. The agent describes the
 ### 4.3 The host or user owns
 
 - The original objective and workspace
-- The trusted permission ceiling
+- The user-configured managed-agent permission ceiling
 - Runtime-wide active-turn capacity at process startup
 - Available execution presets and recommendation policy
 - Which host capabilities are advertised to a workflow
@@ -215,7 +221,7 @@ The smallest coherent design has four runtime components:
 4. **Durable orchestration store**
    Records the minimum state needed to discover and recover workflows without duplicating Codex transcripts.
 
-The host-facing MCP and CLI surfaces are thin projections over these components, not separate orchestration engines. Computer Use remains a capability of the main Desktop host task; Banana only carries a request to that host and its correlated response back.
+The host-facing MCP and CLI surfaces are thin projections over these components, not separate orchestration engines. MCP transport sessions own no workflow state: each call identifies its workflow or agent, and the runtime remains the sole durable owner. Use the current MCP SDK and the simplest local transport supported by the installed Codex at implementation time; do not pin an MCP protocol version or maintain parallel transport implementations. Computer Use remains a capability of the main Desktop host task; Banana only carries a request to that host and its correlated response back.
 
 ```mermaid
 flowchart LR
@@ -331,6 +337,8 @@ Non-closing tools commit when their successful tool response is persisted. Their
 
 Every agent has at most one active turn or one queued continuation. Several messages, request events, child events, or host responses arriving before dispatch coalesce into that one continuation and are delivered as one mechanically ordered input batch. A successful model turn that ends without a turn-closing disposition releases its lease, enters `waiting` with reason `no_disposition`, and creates an attention item rather than inventing an implicit dependency.
 
+An agent waiting with reason no_disposition is woken by an accepted ordinary message from its direct parent or the host. Any such wake creates exactly one continuation under the same coalescing rule; V1 has no separate resume tool.
+
 Failures are reported to the parent. They do not automatically fail the entire workflow; the parent decides whether the phase can continue, should be replaced, or should be reported as incomplete.
 
 When an agent becomes failed or cancelled, every nonterminal descendant is recursively cancelled. Existing submissions and results are retained as explicitly unaccepted partial evidence. The failed agent's parent may create replacement work, but no agent may retroactively accept a submission on the failed parent's behalf.
@@ -377,7 +385,7 @@ V1 has no default `max_depth` or lifetime `max_agents`. Optional depth or popula
 
 The workflow root always starts in a fresh Codex thread through `thread/start`. It does not inherit or fork the main host conversation. The host skill must turn the user's request and any necessary conversational references into the explicit standalone `task` and optional structured `details` passed to `banana_workflow_start`.
 
-Before allocating a workflow, the runtime validates startup configuration, workspace, root preset, trusted permission ceiling, required App Server capabilities, and tool isolation. Rejection creates no workflow. After a workflow ID is durably allocated, root thread or first-dispatch failure marks the root and workflow `failed` with terminal facts.
+Before allocating a workflow, the runtime validates startup configuration, workspace, root preset, configured permission ceiling, required App Server capabilities, and tool isolation. Rejection creates no workflow. After a workflow ID is durably allocated, root thread or first-dispatch failure marks the root and workflow `failed` with terminal facts.
 
 The root records `fresh` provenance with no parent. Its initial bootstrap contains the workflow and agent IDs, task, workspace, resolved root preset, available preset catalog and owner-authored recommendation notes, effective permissions, advertised host capabilities, runtime active-turn limit, and stable Banana instructions.
 
@@ -453,7 +461,7 @@ A preset represents a reusable compute configuration:
 }
 ```
 
-V1 is complete when preset structure, validation, discovery, inheritance, overrides, and a clearly labeled example work. The owner may replace or extend that configuration without code changes. The runtime does not infer a universal task-to-model recommendation policy.
+V1 ships with the four owner-defined presets and recommendations in section 19. The owner may replace or extend that configuration without code changes. The runtime exposes the notes to agents but does not infer additional task-to-model policy.
 
 Preset rules:
 
@@ -463,7 +471,7 @@ Preset rules:
 - The configuration is resolved into an immutable workflow snapshot at start.
 - One-workflow overrides may add or replace whole named preset entries at workflow start; field-by-field merge is not supported.
 - Every preset in the resolved workflow catalog is validated against App Server model capabilities at workflow start.
-- Unsupported models, effort levels, or service tiers fail explicitly.
+- Unsupported models, effort levels, or explicitly requested service tiers fail explicitly.
 - Provider fallback is not silently enabled for an explicit preset.
 - The runtime records requested configuration and any observed routing fields that App Server actually returns.
 - It never labels requested routing as observed routing when the platform does not expose confirmation.
@@ -543,7 +551,7 @@ The tool is distinct from `banana_ask` in the model-facing surface because askin
 
 Semantics:
 
-1. The host skill derives capability availability from the installed Desktop host surface and snapshots it immutably at workflow start. If Computer Use is unavailable, `computer_use` is not advertised.
+1. Effective host capabilities are the configured startup ceiling intersected with availability reported by the installed Desktop host at workflow start, and that result is snapshotted immutably. A missing host availability report means no host capabilities are available. If Computer Use is unavailable from either source, computer_use is not advertised.
 2. Any active agent may request an advertised host capability directly. The request does not bubble through the agent tree. Its direct parent receives a material notification for awareness but gains neither response authority nor an obligation to relay it.
 3. One operation allocates the request and arms the request-and-wait disposition from section 7.1. The host sees it only after the requester turn completes successfully.
 4. A committed request enters `pending`. `banana_workflow_poll` exposes the oldest pending Computer Use request as `host_action_required`; polling observes it but does not claim it.
@@ -640,19 +648,21 @@ The terminal workflow response contains:
 
 ## 15. Permissions and approvals
 
-The host controller derives the trusted permission ceiling from actual Codex/host policy and supplies it through trusted integration metadata, not model-authored task content. The root receives that ceiling or an explicit narrower policy. Omitting child permissions preserves the parent's effective policy; an explicit child policy must be a subset of its direct parent's effective policy, not merely the original host ceiling.
+The user-owned Banana startup configuration is the authoritative permission ceiling for managed agents. The runtime validates that ceiling against the current App Server and any administrator-enforced requirements. Workflow-start arguments may select the configured ceiling or narrow it; they cannot widen it. Omitted permission objects and fields inherit the direct parent's effective value. Empty allowlists mean none, and every explicit workflow, root, or child value may only narrow the inherited authority; widening is rejected rather than clamped.
+
+The shipped managed-agent default makes only the workflow workspace writable and disables network access. Managed threads receive the Banana agent tools plus the current normal sandboxed Codex coding tools. Native Codex delegation and direct Computer Use are unavailable, and no additional MCP server, app, or app-provided tool is available unless the startup ceiling explicitly allowlists it.
 
 At minimum, the runtime handles these axes separately:
 
-- Filesystem and sandbox access, using the supported App Server's native modes without increasing access
+- Filesystem and sandbox access, using the current App Server's native modes without increasing access
 - Writable roots, canonicalized as absolute Windows paths; each child root must equal or remain beneath an effective parent root
 - Network access, where disabled is narrower than enabled
-- Approval policy and approval reviewer routing, which are host-inherited and not child-overridable
+- Approval policy and approval reviewer routing, which come from the configured ceiling and are not child-overridable
 - Tool and MCP allowlists, where the child set must be a subset of the parent set
 
-The runtime must never infer a broader policy when trusted host facts are unavailable. It must request an explicit ceiling or fail startup.
+The runtime must never infer permissions broader than the startup configuration. Missing or invalid permission configuration fails startup clearly.
 
-Forked context does not imply inherited authority. Every fresh or forked thread receives the effective policy resolved for that child. If the supported App Server cannot enforce a requested restriction, startup or spawn fails instead of claiming the restriction exists.
+Forked context does not imply inherited authority. Every fresh or forked thread receives the effective policy resolved for that child. If the current App Server cannot enforce a requested restriction, startup or spawn fails instead of claiming the restriction exists.
 
 ### 15.1 Managed-thread tool boundary
 
@@ -660,9 +670,9 @@ Every managed thread receives the Banana agent tools and only those additional C
 
 The runtime binds each agent-tool call to the managed thread's runtime identity; a caller cannot choose another agent identity. Host calls use the separate trusted host connection. No hostile-user authentication system is required inside the single-user local envelope.
 
-Approval requests pause the affected turn as required by Codex and are relayed to the host. App Server remains authoritative for the approval itself. Banana durably records only `approval_id`, workflow/agent/thread/turn correlation, a display summary, and `pending | answered | invalidated` relay status. Only a pending approval may be answered; cancellation invalidates it, and duplicate or late responses fail with `approval_not_pending`. Banana Split never answers a user approval through model inference.
+Approval requests pause the affected turn as required by Codex and are relayed to the host. App Server remains authoritative for the approval itself. Banana durably records only `approval_id`, workflow/agent/thread/turn correlation, a display summary, compact request and response-contract facts needed for an explicit host decision, and `pending | answered | invalidated` relay status. It does not persist an arbitrary full protocol request. Only a pending approval may be answered; cancellation invalidates it, and duplicate or late responses fail with `approval_not_pending`. Banana Split never answers a user approval through model inference.
 
-A Computer Use request is governed by the Desktop host's effective permissions and interactive approval policy. The requesting agent cannot widen them, and completing the request never grants Computer Use or new authority to that agent.
+The Desktop host's own permissions are separate from the managed-agent ceiling. They govern Computer Use and other host-side actions at the moment the host performs them. The startup configuration decides whether the Computer Use request bridge is advertised, but advertisement is not preauthorization: the host may still decline or fail a request, and completing it never grants Computer Use or new authority to the requesting agent.
 
 ## 16. Durability, discovery, and recovery
 
@@ -688,7 +698,7 @@ It does not duplicate Codex thread transcripts.
 
 Tasks, briefs, mailboxes, host-capability requests and evidence, submissions, and results can still contain sensitive material. The store is private to the local user. Poll snapshots omit raw payloads; explicit inspect and transcript operations may reveal them.
 
-An ordinary V1 restart means the same Windows user and machine, Banana data directory, workspace paths, Codex home/authentication, supported App Server capability set, retained non-ephemeral threads, and main host task. Host-task replacement and workflow migration are outside V1.
+An ordinary V1 restart means the same Windows user and machine, Banana data directory, workspace paths, Codex home/authentication, a normally functioning current App Server with the required capabilities, retained non-ephemeral threads, and main host task. Host-task replacement and workflow migration are outside V1.
 
 Recovery contract:
 
@@ -752,7 +762,7 @@ Required conceptual capabilities include:
 
 Optional capabilities such as `turn/steer` may improve latency but are never correctness requirements.
 
-V1 targets one documented App Server capability set at a time. The finished build records the exact tested App Server build/protocol and observed capability manifest in diagnostics and support documentation. Startup validates the required operations and managed-thread tool isolation, and fails actionably when they are unavailable. Do not build a multi-version compatibility layer. Unknown nonmaterial fields may be ignored; an unknown event that prevents safe state tracking is surfaced and stops the affected work.
+V1 builds and runs against the Codex version currently installed on the implementation and test machine. It does not pin, bundle, or branch on an exact Codex version. Startup probes only the capabilities required by the normal product path and fails actionably when one is unavailable. Do not build a compatibility matrix, version-specific adapters, migration layer, or speculative handling for future Codex changes. Unknown nonmaterial fields may be ignored; an unknown event that prevents safe state tracking is surfaced and stops the affected work.
 
 Codex App Server documents `thread/fork` as copying stored history into a new thread and supports an explicit `lastTurnId`; this is the basis for true inherited context. It also exposes model discovery and per-thread or per-turn model, reasoning, and service-tier settings. Catalog validation is not proof that a provider dispatch will succeed, so actual dispatch failure remains visible and never triggers silent fallback.
 
@@ -762,12 +772,13 @@ Official references:
 
 - [Official Codex App Server README](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md)
 - [App Server protocol source](https://github.com/openai/codex/tree/main/codex-rs/app-server-protocol)
+- [Official Codex MCP documentation](https://developers.openai.com/codex/mcp)
 
 ## 19. Configuration
 
 V1 uses small runtime-startup configuration plus an immutable per-workflow preset snapshot.
 
-Illustrative shape:
+Shipped V1 defaults:
 
 ```json
 {
@@ -776,11 +787,32 @@ Illustrative shape:
     "data_directory": "%LOCALAPPDATA%/BananaSplit",
     "scheduler": {
       "max_active_turns": 16
+    },
+    "permission_ceiling": {
+      "sandbox": "workspaceWrite",
+      "network_access": false,
+      "approval_policy": "onRequest",
+      "approval_reviewer": "host"
+    },
+    "host_capabilities": {
+      "computer_use": true
     }
   },
   "workflow_defaults": {
-    "default_preset": "luna-fast-xhigh",
+    "default_preset": "sol-high",
     "presets": {
+      "sol-xhigh": {
+        "model": "gpt-5.6-sol",
+        "reasoning_effort": "xhigh"
+      },
+      "sol-high": {
+        "model": "gpt-5.6-sol",
+        "reasoning_effort": "high"
+      },
+      "sol-medium": {
+        "model": "gpt-5.6-sol",
+        "reasoning_effort": "medium"
+      },
       "luna-fast-xhigh": {
         "model": "gpt-5.6-luna",
         "reasoning_effort": "xhigh",
@@ -788,20 +820,29 @@ Illustrative shape:
       }
     },
     "preset_recommendations": {
+      "sol-xhigh": {
+        "recommended_for": "Truly complex work, especially work requiring significant judgment that is not being handled by the user"
+      },
+      "sol-high": {
+        "recommended_for": "Default for judgment calls, advisor work, and complex work"
+      },
+      "sol-medium": {
+        "recommended_for": "Less-defined workhorse work, including complex or critical tasks"
+      },
       "luna-fast-xhigh": {
-        "recommended_for": "Well-scoped delegated tasks",
-        "notes": "Owner-authored guidance; not a runtime role"
+        "recommended_for": "Well-defined workhorse tasks, low-cost bulk work, or implementation paired with a Sol advisor"
       }
     }
   }
 }
 ```
 
-The example demonstrates structure, not a final recommendation policy.
+These are shipped owner recommendations, not runtime roles or enforced routing. Sol presets omit a service tier and therefore use the current Codex default; Luna explicitly requests fast mode. The owner may edit the catalog and notes without changing code. Omitted optional permission and allowlist fields resolve under the default and inheritance rules in section 15; omission never means unrestricted authority.
 
 Configuration principles:
 
 - Scheduler limits are process-wide startup configuration and cannot be overridden per workflow
+- The startup configuration is authoritative for the managed-agent permission ceiling and advertised host capabilities
 - A default preset is required
 - No roles or role instructions
 - No role-specific spawn graph
@@ -913,10 +954,10 @@ The host skill performs the complete conversation-native loop: construct the sta
 ### `banana_workflow_start`
 
 ```text
-banana_workflow_start(task, details?, workspace, root_preset?, preset_overrides?, root_permissions?)
+banana_workflow_start(task, details?, workspace, root_preset?, preset_overrides?, root_permissions?, host_capabilities?: {computer_use: boolean})
 ```
 
-Start a workflow. Trusted host integration metadata supplies the permission ceiling and detected host capabilities; model arguments cannot broaden them. Return workflow/root IDs, resolved root preset, fresh root provenance, immutable snapshot summary, and initial workflow state.
+Start a workflow. User-owned startup configuration supplies the managed-agent permission ceiling and host-capability ceiling; model arguments may narrow permissions but cannot broaden them. host_capabilities is the main host's current availability report, not a requested grant. Its omission reports no available host capabilities. The immutable workflow advertisement is the intersection of this report and the configured ceiling. Return workflow/root IDs, resolved root preset, fresh root provenance, immutable snapshot summary, and initial workflow state.
 
 ### `banana_workflow_poll`
 
@@ -964,7 +1005,7 @@ banana_workflow_control(workflow_id, action: freeze_spawning | reopen_spawning |
 banana_approval_respond(workflow_id, approval_id, decision, details?)
 ```
 
-Relay a trusted host/user decision to a pending Codex approval and return relay status. `decision` uses the supported App Server approval enum and is passed through without model reinterpretation.
+Relay a trusted host/user decision to a pending Codex approval and return relay status. `decision` uses the supported App Server approval enum for command and file approvals and is passed through without model reinterpretation. Permission, user-input, and MCP elicitation attention items expose the bounded request facts and exact response contract the host needs; for those methods the host supplies the protocol response unchanged in `details.response`.
 
 ### `banana_host_respond`
 
@@ -1101,7 +1142,7 @@ The per-workflow material-event stream contains lifecycle, advice, host-capabili
 - Guaranteeing upstream service concurrency
 - Replacing Codex's model or thread implementation; Banana uses Codex threads as its managed agents while disabling native delegation inside those threads
 - Scheduler fairness, per-workflow quotas, or queue-capacity admission policy
-- Permanent version compatibility across multiple Codex App Server releases
+- Codex version pinning, compatibility matrices, support for old versions, or version-specific adapter branches
 
 ## 26. Proven mechanics and design evidence
 
@@ -1156,7 +1197,7 @@ A child submits work, its parent requests revision, and the same child thread co
 
 ### 28.6 Presets, permissions, and managed-tool isolation
 
-A child sees the workflow's preset catalog and owner recommendation notes, requests a configured preset, and receives requested/resolved/observed routing evidence without silent substitution. Fresh and inherited children preserve or narrow the direct parent's trusted permission policy and cannot widen it. Managed threads expose Banana agent tools but not Banana host tools, direct Computer Use, or Codex-native delegation.
+A child sees the workflow's preset catalog and owner recommendation notes, requests a configured preset, and receives requested/resolved/observed routing evidence without silent substitution. Fresh and inherited children preserve or narrow the direct parent's configured permission policy and cannot widen it. Managed threads expose Banana agent tools but not Banana host tools, direct Computer Use, or Codex-native delegation.
 
 ### 28.7 Ordinary restart recovery
 
@@ -1212,7 +1253,7 @@ Focused automated verification must cover:
 - Subtree/workflow cancellation, spawn freeze, and honest side-effect reporting
 - Poll, inspect, transcript pagination, and Desktop/CLI state consistency
 - Normative tool schemas, stable errors, final workflow response, and read-only CLI enforcement
-- Startup failure when required App Server capabilities are unavailable
+- Startup failure when the current installed App Server lacks a capability required by the normal product path
 - Single-runtime and single-writer enforcement on Windows 11 x64
 
 One installed end-to-end acceptance test should combine the central claims: from a Windows Desktop host, a deep workflow creates more than 16 agents over time, never exceeds active capacity, uses fresh and inherited context, asks an advisor, requests and completes real Desktop Computer Use from a descendant, revises a child through parent review, remains inspectable from Desktop and CLI, and survives an ordinary runtime restart without losing identity or accepted evidence.
@@ -1236,7 +1277,7 @@ The implementation agent should use this sequence to reduce integration risk whi
 6. **Durability and host lifecycle**
    - Store, recovery, discovery, rich polling, read-only agent/transcript inspection, CLI projections, Computer Use response bridge, approvals, cancellation snapshots, emergency spawn freeze.
 7. **Packaging and supported integration**
-   - Minimal local distribution, startup diagnostics, documentation, contract tests, plugin skill, and end-to-end verification.
+   - Personal/local plugin distribution, self-contained Windows runtime, stateless MCP boundary over the simplest current supported transport, startup diagnostics, documentation, contract tests, and end-to-end verification.
 
 At the end of each step, remove abstractions that are not needed by the complete V1 contract. The final pass installs and exercises the product as a user would; unit-level completion alone is insufficient.
 
@@ -1244,7 +1285,7 @@ At the end of each step, remove abstractions that are not needed by the complete
 
 No unresolved product decision in this section blocks implementation. V1 is feature complete when the preceding contract is satisfied.
 
-The exact preset recommendation matrix is owner-authored configuration content, not a missing runtime decision. V1 must provide the schema, agent-visible recommendation notes, validation, override behavior, and a clearly labeled example; it must not invent a universal task-to-model policy. V1 retains workflows and managed threads until explicit manual cleanup and has no automatic lifecycle-management system.
+The shipped preset recommendation matrix is defined in section 19 and remains owner-editable configuration rather than runtime routing policy. V1 retains workflows and managed threads until explicit manual cleanup and has no automatic lifecycle-management system.
 
 The following are explicitly deferred until the owner requests broader hardening or new product scope:
 
@@ -1254,7 +1295,7 @@ The following are explicitly deferred until the owner requests broader hardening
 - Host capabilities beyond Computer Use
 - Automatic retention tiers, archival policy engines, or cross-version data migrations
 - Depth/population budgets, generalized dependency deadlock handling, automatic retry, or recovery heuristics
-- Multi-version Codex compatibility layers, hostile multi-tenancy, distributed coordination, or high availability
+- Codex version pins or multi-version compatibility layers, hostile multi-tenancy, distributed coordination, or high availability
 - Additional operating systems, concurrent Banana runtimes, host-task replacement, or workflow movement between runtimes
 
 Do not create dormant frameworks or extension points for these items. The intentionally small V1 codebase is the flexibility mechanism; additions should be made directly when testing demonstrates their need.
@@ -1270,6 +1311,6 @@ The new core adds only four orchestration ideas:
 3. Explicit direct-parent acceptance and revision of child submissions.
 4. A correlated direct request for the advertised host-only Computer Use capability.
 
-Everything else exists to make those ideas safe and dependable: execution presets instead of roles, a trusted permission ceiling, durable identity and recovery, honest mechanical state, and a narrow Codex adapter. The main task's cockpit and CLI inspection commands are views over that state, not new orchestration concepts.
+Everything else exists to make those ideas safe and dependable: execution presets instead of roles, a user-configured permission ceiling, durable identity and recovery, honest mechanical state, and a narrow Codex adapter. The main task's cockpit and CLI inspection commands are views over that state, not new orchestration concepts.
 
 V1 is the whole product described here, not a staged MVP. It should be production-quality inside its narrow supported envelope and intentionally unhardened for speculative cases. Banana Split should not tell agents what organization to build; it should give intelligent agents a small set of trustworthy primitives with which they can build the organization the task needs.

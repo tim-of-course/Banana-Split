@@ -1,0 +1,8 @@
+node_modules/
+.node_modules-junction/
+dist/
+.protocol-schema/
+.banana-test/
+.deps/
+.manual-cache/
+*.log

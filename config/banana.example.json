@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "runtime": {
+    "data_directory": "%LOCALAPPDATA%/BananaSplit",
+    "listen_port": 43891,
+    "scheduler": { "max_active_turns": 16 },
+    "permission_ceiling": {
+      "sandbox": "workspaceWrite",
+      "network_access": false,
+      "approval_policy": "onRequest",
+      "approval_reviewer": "host"
+    },
+    "host_capabilities": { "computer_use": true },
+    "codex_command": "codex"
+  },
+  "workflow_defaults": {
+    "default_preset": "sol-high",
+    "presets": {
+      "sol-xhigh": { "model": "gpt-5.6-sol", "reasoning_effort": "xhigh" },
+      "sol-high": { "model": "gpt-5.6-sol", "reasoning_effort": "high" },
+      "sol-medium": { "model": "gpt-5.6-sol", "reasoning_effort": "medium" },
+      "luna-fast-xhigh": { "model": "gpt-5.6-luna", "reasoning_effort": "xhigh", "service_tier": "fast" }
+    },
+    "preset_recommendations": {
+      "sol-xhigh": { "recommended_for": "Truly complex work, especially work requiring significant judgment that is not being handled by the user" },
+      "sol-high": { "recommended_for": "Default for judgment calls, advisor work, and complex work" },
+      "sol-medium": { "recommended_for": "Less-defined workhorse work, including complex or critical tasks" },
+      "luna-fast-xhigh": { "recommended_for": "Well-defined workhorse tasks, low-cost bulk work, or implementation paired with a Sol advisor" }
+    }
+  }
+}

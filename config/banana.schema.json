@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://banana-split.local/schema/config-v1.json",
+  "title": "Banana Split V1 runtime configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "runtime", "workflow_defaults"],
+  "properties": {
+    "version": { "const": 1 },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["data_directory", "scheduler", "permission_ceiling", "host_capabilities"],
+      "properties": {
+        "data_directory": { "type": "string", "minLength": 1 },
+        "listen_port": { "type": "integer", "minimum": 1024, "maximum": 65534, "default": 43891 },
+        "scheduler": {
+          "type": "object", "additionalProperties": false, "required": ["max_active_turns"],
+          "properties": { "max_active_turns": { "type": "integer", "minimum": 1, "default": 16 } }
+        },
+        "permission_ceiling": {
+          "type": "object", "additionalProperties": false,
+          "required": ["sandbox", "network_access", "approval_policy", "approval_reviewer"],
+          "properties": {
+            "sandbox": { "enum": ["readOnly", "workspaceWrite"] },
+            "network_access": { "type": "boolean" },
+            "approval_policy": { "enum": ["untrusted", "onRequest", "never"] },
+            "approval_reviewer": { "const": "host" },
+            "writable_roots": { "$ref": "#/$defs/stringSet" },
+            "tools": { "$ref": "#/$defs/stringSet" },
+            "mcp_servers": { "$ref": "#/$defs/stringSet" }
+          }
+        },
+        "host_capabilities": {
+          "type": "object", "additionalProperties": false, "required": ["computer_use"],
+          "properties": { "computer_use": { "type": "boolean" } }
+        },
+        "codex_command": { "type": "string", "minLength": 1, "default": "codex" }
+      }
+    },
+    "workflow_defaults": {
+      "type": "object", "additionalProperties": false,
+      "required": ["default_preset", "presets", "preset_recommendations"],
+      "properties": {
+        "default_preset": { "type": "string", "minLength": 1 },
+        "presets": {
+          "type": "object", "minProperties": 1,
+          "additionalProperties": { "$ref": "#/$defs/preset" }
+        },
+        "preset_recommendations": {
+          "type": "object",
+          "additionalProperties": { "type": "object" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "stringSet": {
+      "type": "array", "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "preset": {
+      "type": "object", "additionalProperties": false,
+      "required": ["model", "reasoning_effort"],
+      "properties": {
+        "model": { "type": "string", "minLength": 1 },
+        "reasoning_effort": { "type": "string", "minLength": 1 },
+        "service_tier": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}
