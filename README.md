@@ -34,6 +34,8 @@ If the earlier colliding V1 entry was installed, remove only that transient entr
 
 The plugin starts or reconnects the runtime through its MCP server. Runtime ownership is locked by canonical durable-data directory, so a second process cannot become another writer even when configured with a different loopback port. The MCP server also verifies that an existing listener owns the expected data directory before reconnecting. The host skill starts every root from a standalone task in a fresh thread and polls until mechanical termination.
 
+When updating Banana Split itself, restart Codex Desktop after reinstalling the plugin. Existing Desktop sessions may retain the previously resolved plugin cache and runtime paths until the app restarts; begin verification in a new task after reopening Codex.
+
 ## Configuration
 
 The packaged configuration is `distribution/plugins/banana-split-v1/config/banana.json`; the documented editable example is `config/banana.example.json`, validated by `config/banana.schema.json` and strict runtime checks. Configuration is read only at runtime startup. Workflow preset, permission, recommendation, and host-capability values are snapshotted immutably at workflow start.

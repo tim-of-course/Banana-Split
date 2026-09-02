@@ -5,18 +5,21 @@ description: Use Banana Split by default whenever a task calls for subagents, mu
 
 # Banana Split host loop
 
-Use the Banana host tools from this plugin. Keep the main task as the cockpit; managed agents are independent App Server threads.
+Keep the main task as the cockpit. Managed agents run in independent Codex threads.
 
-1. Turn the user's objective and any necessary conversational references into a standalone root `task`. Do not claim the root inherits this host conversation.
-2. Determine host capability availability from tools actually callable in this host task. Pass `host_capabilities: {computer_use: true}` only when Computer Use is currently available. If the host reports nothing, omit the field and advertise nothing.
-3. Call `banana_workflow_start` with the exact workspace and any user-requested preset or narrower permissions. Do not broaden startup permissions.
-4. Poll with `banana_workflow_poll`. Preserve and pass the returned cursor so events are not repeated. Continue until the workflow is mechanically terminal unless the user asks to stop.
-5. Present attention items promptly:
-   - Relay Codex approvals only after an explicit user decision through `banana_approval_respond`. Present the approval attention item's summary and bounded request facts. For permissions, user-input, and MCP elicitation requests, construct `details.response` exactly as described by `request.response_contract`; do not infer or auto-approve an answer.
-   - For `host_action_required`, inspect the bounded task and evidence request. Call `banana_host_respond(status: in_progress)` before acting. Perform or decline the action under this host task's current permissions, then record `completed`, `declined`, or `failed` with evidence. Never replay an `uncertain` action automatically.
-   - A host message to an agent waiting with `no_disposition` creates exactly one continuation. Use `banana_workflow_send` only when new material context or an explicit resume is warranted.
-   - Inspect failures, submissions, or deep agents with `banana_agent_inspect`; inspection never resumes a thread.
-6. Use `banana_workflow_control` for a user-requested spawn freeze, subtree cancellation, or workflow cancellation. Do not imply cancellation rolls back side effects.
-7. At termination, report the mechanical workflow status separately from the root result's model-judged outcome. Preserve workflow and agent IDs for later inspection.
+1. Write a standalone root `task` containing the objective and any conversational context it needs. The root starts fresh rather than inheriting this conversation.
+2. Advertise only host capabilities currently callable here. Pass `host_capabilities: {computer_use: true}` when Computer Use is available; otherwise omit it.
+3. Start the workflow in the exact workspace. Omit `root_preset` to use the configured default; pass a preset name only when the user requests that configured preset. Pass only permission restrictions that preserve or narrow access.
+4. Poll until the workflow is mechanically terminal, preserving the returned cursor between calls.
+5. Resolve each attention item before continuing:
+   - For a Codex approval, present its summary and bounded request facts. After an explicit user decision, relay it with `banana_approval_respond`. For permission, user-input, and MCP elicitation requests, copy the response shape required by `request.response_contract` into `details.response`.
+   - For `host_action_required`, inspect the bounded task and evidence request, then call `banana_host_respond(status: in_progress)` before acting. Perform or decline it under this task's permissions and record `completed`, `declined`, or `failed` with evidence. An `uncertain` action stays unresolved until explicitly handled.
+   - A host message to an agent waiting with `no_disposition` creates one continuation. Send only new material context or an explicit resume.
+   - Inspect failures, submissions, and deep agents without resuming them.
+6. Apply a user-requested spawn freeze, reopening, subtree cancellation, or workflow cancellation with `banana_workflow_control`. Report cancellation without implying rollback.
+7. Finish only after the workflow is terminal. Report these separately:
+   - mechanical workflow status;
+   - root result outcome and summary, if present;
+   - workflow ID, root agent ID, and any child IDs needed for later inspection.
 
-If a tool returns `runtime_unavailable`, report the configured path and startup error. Do not invent state, retry an uncertain turn, or fall back to native subagents.
+If startup returns `runtime_unavailable`, report the configured path and startup error. Leave uncertain turns untouched and keep native subagents unavailable.

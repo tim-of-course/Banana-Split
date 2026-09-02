@@ -14,8 +14,8 @@ export async function runMcp(config: RuntimeConfig, configPath: string): Promise
   const server = new McpServer({ name: "banana-split-v1", version: "1.0.0" });
   const call = (name: string, args: Record<string, unknown>) => runtimeCall(config.runtime.listen_port, "host_tool", { name, args }, 65000).then(toolResult);
 
-  server.registerTool("banana_workflow_start", { description: "Start a durable recursive Banana Split workflow in a fresh Codex thread.", inputSchema: z.strictObject({
-    task: z.string().min(1), details: jsonObject.optional(), workspace: z.string().min(1), root_preset: z.string().min(1).optional(),
+  server.registerTool("banana_workflow_start", { description: "Start a durable recursive Banana Split workflow in a fresh Codex thread. Omit root_preset to use the configured default.", inputSchema: z.strictObject({
+    task: z.string().min(1), details: jsonObject.optional(), workspace: z.string().min(1), root_preset: z.string().min(1).optional().describe("Configured preset name. Omit this field to use the configured default."),
     preset_overrides: z.record(z.string(), z.strictObject({ model: z.string().min(1), reasoning_effort: z.string().min(1), service_tier: z.string().min(1).optional() })).optional(),
     root_permissions: jsonObject.optional(),
     host_capabilities: z.strictObject({ computer_use: z.boolean() }).optional()

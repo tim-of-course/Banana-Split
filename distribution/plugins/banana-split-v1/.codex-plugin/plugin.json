@@ -1,6 +1,6 @@
 {
   "name": "banana-split-v1",
-  "version": "1.0.0+codex.20260901182706",
+  "version": "1.0.0+codex.20260902223817",
   "description": "Durable recursive Codex agent workflows with bounded active-turn capacity.",
   "author": {
     "name": "Banana Split"

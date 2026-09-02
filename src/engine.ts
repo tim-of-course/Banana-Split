@@ -303,6 +303,7 @@ export class Engine {
         instructions: [
           "You are an independent managed Banana Split agent in the exact shared workspace above.",
           "Use only banana_* tools for orchestration. Native delegation and direct Computer Use are unavailable.",
+          "The main host executes advertised host capabilities; use a managed agent with an appropriate available preset when you need model judgment.",
           "A non-root result is only proposed until your direct parent accepts it.",
           "End each useful turn with exactly one of banana_wait, banana_ask, banana_request_host, or banana_finish.",
           "Coordinate overlapping edits explicitly; Banana Split does not create worktrees or file locks."
