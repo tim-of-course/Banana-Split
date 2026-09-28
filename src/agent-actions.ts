@@ -55,13 +55,21 @@ async function spawn(engine: Engine, workflow: WorkflowRecord, parent: AgentReco
     try {
       child.thread_start_started = true;
       engine.persist();
-      const response = await engine.app.startThread(workflow.workspace, child.resolved_preset, child.permissions, AGENT_TOOL_SPECS);
+      const threadConfig = await engine.app.prepareThread(workflow.workspace, child.permissions.mcp_servers);
+      if (child.state === "cancelled") return failure("invalid_state", "Child was cancelled during thread preparation", { workflow_id: workflow.id, agent_id: child.id, state: child.state });
+      const response = await engine.app.startThread(workflow.workspace, child.resolved_preset, child.permissions, AGENT_TOOL_SPECS, threadConfig);
       child.thread_id = String((response.thread as JsonObject).id);
+      await engine.nameThread(workflow, child);
       child.thread_start_started = undefined;
       child.observed_routing = routing(response);
+      if (child.state === "cancelled") {
+        engine.persist();
+        return failure("invalid_state", "Child was cancelled during thread creation", { workflow_id: workflow.id, agent_id: child.id, state: child.state, side_effects: "possible" });
+      }
       child.state = "waiting";
       engine.enqueue(workflow, child, "fresh child ready");
     } catch (error) {
+      if (child.state === "cancelled") return failure("invalid_state", "Child was cancelled during thread creation", { workflow_id: workflow.id, agent_id: child.id, state: child.state, side_effects: "possible" });
       const message = `thread/start failed: ${String(error)}`;
       engine.failAgent(workflow, child, "app_server_unsupported", message, "possible");
       engine.persist();
@@ -75,13 +83,13 @@ async function spawn(engine: Engine, workflow: WorkflowRecord, parent: AgentReco
   return { ok: true, agent_id: child.id, short_id: child.short_id, context_state: source,
     ...(source === "inherit" ? { thread_boundary: parent.active_turn_id } : {}), requested_preset: presetName,
     resolved_preset: child.resolved_preset, admission_state: child.state === "pending_context" ? "pending_context" : child.state === "active" ? "active" : "queued",
-    active_turns: engine.activeCount(), max_active_turns: engine.config.runtime.scheduler.max_active_turns, should_yield: shouldYield };
+    capacity_scope: "runtime", active_turns: engine.activeCount(), max_active_turns: engine.config.runtime.scheduler.max_active_turns, should_yield: shouldYield };
 }
 
 function send(engine: Engine, workflow: WorkflowRecord, sender: AgentRecord, args: JsonObject): ToolResult {
   const recipient = engine.resolveAgent(workflow, text(args.to, "to"), sender);
   if (!recipient) return failure("not_found", "Recipient was not found or short id is ambiguous", { workflow_id: workflow.id, agent_id: sender.id });
-  if (!["pending_context", "queued", "active", "waiting"].includes(recipient.state) || recipient.turn_closing) {
+  if (!engine.messageEligible(recipient)) {
     return failure("recipient_unavailable", "Recipient cannot accept ordinary messages in its current state", { workflow_id: workflow.id, agent_id: recipient.id, state: recipient.state });
   }
   const message = object(args.message, "message"); exact(message, ["type", "body", "details"], "message");
@@ -122,7 +130,7 @@ function reply(engine: Engine, workflow: WorkflowRecord, advisor: AgentRecord, a
   if (args.details !== undefined) request.details = object(args.details, "details");
   request.status = status; request.resolved_at = now();
   const requester = workflow.agents[request.requester_id]!;
-  engine.deliver(workflow, requester, advisor.id, "advice_response", request.guidance, { request_id: request.id, status, ...(request.details ?? {}) });
+  engine.deliver(workflow, requester, advisor.id, "advice_response", request.guidance, { request_id: request.id, status, reply_details: request.details ?? {} });
   engine.event(workflow, "advice_resolved", `${advisor.short_id} ${status} ${request.id}`, requester.id, request.id);
   engine.persist();
   return { ok: true, request_id: request.id, status, requester_id: requester.id };
@@ -147,7 +155,9 @@ function wait(engine: Engine, workflow: WorkflowRecord, agent: AgentRecord, args
   const resolved: string[] = [];
   for (const childId of children) {
     const child = engine.resolveAgent(workflow, childId, agent);
-    if (!child || child.parent_id !== agent.id) throw new Error(`wait child is not a direct child: ${childId}`);
+    if (!child || child.parent_id !== agent.id) return failure("invalid_input", "banana_wait children accepts only direct children. Use messages:true for a parent or peer message.", {
+      workflow_id: workflow.id, agent_id: agent.id, details: { eligible_child_ids: agent.children, message_wait: { messages: true } }
+    });
     resolved.push(child.id);
   }
   const messages = args.messages === true;
@@ -160,22 +170,26 @@ function wait(engine: Engine, workflow: WorkflowRecord, agent: AgentRecord, args
 function review(engine: Engine, workflow: WorkflowRecord, parent: AgentRecord, args: JsonObject): ToolResult {
   const child = engine.resolveAgent(workflow, text(args.child_id, "child_id"), parent);
   if (!child || child.parent_id !== parent.id) return failure("not_found", "Child is not a direct child", { workflow_id: workflow.id, agent_id: parent.id });
-  if (child.state !== "submitted" || !child.submission) return failure("invalid_state", "Child has no current submission", { workflow_id: workflow.id, agent_id: child.id, state: child.state });
+  if (child.state !== "submitted" || !child.submission) return failure("invalid_state", "Child has no current submission. Read next_action for recovery.", { workflow_id: workflow.id, agent_id: child.id, state: child.state, details: engine.childRecovery(workflow, child) });
   const decision = args.decision;
   if (decision !== "accept" && decision !== "revise") throw new Error("decision must be accept or revise");
   const history = child.submissions.at(-1)!;
+  let feedback: JsonObject | undefined;
+  if (args.feedback !== undefined || decision === "revise") {
+    feedback = object(args.feedback, "feedback"); exact(feedback, ["summary", "details"], "feedback");
+    text(feedback.summary, "feedback.summary");
+    if (feedback.details !== undefined) object(feedback.details, "feedback.details");
+  }
   if (decision === "accept") {
-    if (args.feedback !== undefined) throw new Error("feedback is only valid for revise");
+    if (feedback) history.feedback = feedback;
     history.decision = "accept"; child.result = child.submission; child.submission = undefined; child.state = "completed";
+    engine.invalidateApprovals(workflow, child);
     engine.event(workflow, "review_accepted", `${parent.short_id} accepted ${child.short_id}`, child.id);
     engine.recomputeWorkflow(workflow); engine.persist();
     return { ok: true, child_id: child.id, child_state: child.state, accepted_result: child.result };
   }
-  const feedback = object(args.feedback, "feedback"); exact(feedback, ["summary", "details"], "feedback");
-  const summary = text(feedback.summary, "feedback.summary");
-  if (feedback.details !== undefined) object(feedback.details, "feedback.details");
   history.decision = "revise"; history.feedback = feedback; child.submission = undefined; child.state = "waiting";
-  engine.deliver(workflow, child, parent.id, "review_feedback", summary, (feedback.details ?? {}) as JsonObject);
+  engine.deliver(workflow, child, parent.id, "review_feedback", feedback!.summary as string, (feedback!.details ?? {}) as JsonObject);
   engine.event(workflow, "review_revision", `${parent.short_id} requested revision from ${child.short_id}`, child.id);
   engine.persist();
   return { ok: true, child_id: child.id, child_state: child.state, revision_status: "queued" };
@@ -195,7 +209,11 @@ function finish(engine: Engine, workflow: WorkflowRecord, agent: AgentRecord, ar
   if (!["success", "partial", "blocked", "unsuccessful"].includes(String(outcome))) throw new Error("invalid result outcome");
   const result: ResultValue = { outcome: outcome as ResultValue["outcome"], summary: text(resultObject.summary, "result.summary") };
   if (resultObject.details !== undefined) result.details = object(resultObject.details, "result.details");
-  if (engine.hasBlockers(workflow, agent)) return failure("invalid_state", "Agent has unresolved descendants, reviews, advice, or host requests", { workflow_id: workflow.id, agent_id: agent.id, details: engine.blockers(workflow, agent) });
+  if (engine.hasBlockers(workflow, agent)) return failure("invalid_state", "Agent has unresolved descendants, reviews, advice, or host requests. Review submissions and request banana_finish from children whose work is ready.", { workflow_id: workflow.id, agent_id: agent.id, details: {
+    ...engine.blockers(workflow, agent),
+    ...(agent.mailbox.some(item => !item.assigned_turn_id) ? { next_action: "Accepted inputs are waiting for your next turn. Close with banana_wait({messages:true}) to receive them, then resolve the listed obligations, including banana_reply for inbound advice, before calling banana_finish." } : {}),
+    child_recovery: agent.children.map(id => workflow.agents[id]!).filter(child => !["completed", "failed", "cancelled"].includes(child.state)).map(child => engine.childRecovery(workflow, child))
+  } });
   agent.disposition = { type: "finish", result }; agent.turn_closing = true;
   engine.persist();
   return { ok: true, turn_closing: true };
@@ -233,5 +251,5 @@ const AGENT_FIELDS: Record<string, string[]> = {
 };
 function exact(value: JsonObject, allowed: string[], where: string): void {
   const unknown = Object.keys(value).filter((key) => !allowed.includes(key));
-  if (unknown.length) throw new Error(`${where} has unknown fields: ${unknown.join(", ")}`);
+  if (unknown.length) throw new Error(`${where} has unknown fields: ${unknown.join(", ")}. Allowed fields: ${allowed.join(", ")}`);
 }

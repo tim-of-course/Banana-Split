@@ -5,6 +5,7 @@ export type WorkflowState = "running" | "attention_required" | "cancelling" | "c
 export type Outcome = "success" | "partial" | "blocked" | "unsuccessful";
 
 export interface Preset { model: string; reasoning_effort: string; service_tier?: string }
+export type PresetTiers = Record<string, Record<string, Preset>>;
 export interface PermissionPolicy {
   sandbox: "readOnly" | "workspaceWrite";
   writable_roots: string[];
@@ -33,9 +34,11 @@ export interface AgentRecord {
   task: string; brief?: JsonObject; details?: JsonObject; provenance: ContextProvenance;
   requested_preset: string; resolved_preset: Preset; observed_routing?: JsonObject;
   token_usage?: JsonObject;
+  routing_history?: Array<{ turn_id: string; tier: string; preset: string; resolved_preset: Preset }>;
   permissions: PermissionPolicy; state: AgentState; thread_id?: string; latest_turn_id?: string;
   active_turn_id?: string; pending_context_turn_id?: string; queued: boolean; turn_closing: boolean;
   thread_start_started?: boolean; context_fork_started?: boolean;
+  last_queue_reason?: string;
   disposition?: Disposition; mailbox: MailItem[]; next_message_sequence: number;
   wait?: { children: string[]; messages: boolean; reason?: string };
   uncommitted_finish?: { result: ResultValue; turn_id: string; turn_status: string; recorded_at: string };
@@ -57,18 +60,22 @@ export interface HostRequest {
   status: "armed" | "pending" | "in_progress" | "uncertain" | "completed" | "declined" | "failed" | "cancelled";
   resolution?: "completed" | "declined" | "failed" | "cancelled"; summary?: string; details?: JsonObject;
   terminal_fact?: TerminalFact;
-  created_at: string; claimed_at?: string; resolved_at?: string;
+  created_at: string; pending_sequence?: number; claimed_at?: string; resolved_at?: string;
 }
 export interface ApprovalRecord {
-  id: string; workflow_id: string; agent_id: string; thread_id: string; turn_id: string; method: string;
+  id: string; workflow_id: string; agent_id: string; thread_id: string; turn_id: string | null; method: string;
   request_id: string | number; summary: string; status: "pending" | "answered" | "invalidated"; details?: JsonObject;
+  response?: JsonObject; response_details?: JsonObject; answered_at?: string;
 }
 export interface MaterialEvent {
   cursor: string; sequence: number; type: string; summary: string; agent_id?: string; request_id?: string; created_at: string;
+  details?: JsonObject;
 }
 export interface WorkflowRecord {
   id: string; short_id: string; root_id: string; task: string; details?: JsonObject; workspace: string;
   status: WorkflowState; spawn_frozen: boolean; preset_snapshot: Record<string, Preset>;
+  preset_tiers?: PresetTiers; active_tier?: string;
+  preset_catalog_source?: "configured" | "workflow_override";
   preset_recommendations: Record<string, JsonObject>; default_preset: string; permission_ceiling: PermissionPolicy;
   host_capabilities: { computer_use: boolean }; agents: Record<string, AgentRecord>;
   advice_requests: Record<string, AdviceRequest>; host_requests: Record<string, HostRequest>;
@@ -77,7 +84,7 @@ export interface WorkflowRecord {
 }
 export interface DurableState {
   version: 1; runnable: Array<{ sequence: number; workflow_id: string; agent_id: string }>;
-  next_runnable_sequence: number; workflows: Record<string, WorkflowRecord>;
+  next_runnable_sequence: number; next_host_request_sequence: number; workflows: Record<string, WorkflowRecord>;
 }
 export interface RuntimeConfig {
   version: 1;
@@ -86,12 +93,13 @@ export interface RuntimeConfig {
     permission_ceiling: {
       sandbox: "readOnly" | "workspaceWrite"; network_access: boolean;
       approval_policy: "untrusted" | "onRequest" | "never"; approval_reviewer: "host";
-      writable_roots?: string[]; tools?: string[]; mcp_servers?: string[];
+      writable_roots?: string[]; tools?: string[]; mcp_servers?: string[] | "workspace";
     };
     host_capabilities: { computer_use: boolean }; codex_command: string;
   };
   workflow_defaults: {
     default_preset: string; presets: Record<string, Preset>; preset_recommendations: Record<string, JsonObject>;
+    preset_tiers?: PresetTiers; default_tier?: string;
   };
 }
 export interface ToolFailure {

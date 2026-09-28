@@ -4,68 +4,199 @@
   "title": "Banana Split V1 runtime configuration",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "runtime", "workflow_defaults"],
+  "required": [
+    "version",
+    "runtime",
+    "workflow_defaults"
+  ],
   "properties": {
-    "version": { "const": 1 },
+    "version": {
+      "const": 1
+    },
     "runtime": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["data_directory", "scheduler", "permission_ceiling", "host_capabilities"],
+      "required": [
+        "data_directory",
+        "scheduler",
+        "permission_ceiling",
+        "host_capabilities"
+      ],
       "properties": {
-        "data_directory": { "type": "string", "minLength": 1 },
-        "listen_port": { "type": "integer", "minimum": 1024, "maximum": 65534, "default": 43891 },
+        "data_directory": {
+          "type": "string",
+          "minLength": 1
+        },
+        "listen_port": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 65534,
+          "default": 43891
+        },
         "scheduler": {
-          "type": "object", "additionalProperties": false, "required": ["max_active_turns"],
-          "properties": { "max_active_turns": { "type": "integer", "minimum": 1, "default": 16 } }
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "max_active_turns"
+          ],
+          "properties": {
+            "max_active_turns": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 16
+            }
+          }
         },
         "permission_ceiling": {
-          "type": "object", "additionalProperties": false,
-          "required": ["sandbox", "network_access", "approval_policy", "approval_reviewer"],
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sandbox",
+            "network_access",
+            "approval_policy",
+            "approval_reviewer"
+          ],
           "properties": {
-            "sandbox": { "enum": ["readOnly", "workspaceWrite"] },
-            "network_access": { "type": "boolean" },
-            "approval_policy": { "enum": ["untrusted", "onRequest", "never"] },
-            "approval_reviewer": { "const": "host" },
-            "writable_roots": { "$ref": "#/$defs/stringSet" },
-            "tools": { "$ref": "#/$defs/stringSet" },
-            "mcp_servers": { "$ref": "#/$defs/stringSet" }
+            "sandbox": {
+              "enum": [
+                "readOnly",
+                "workspaceWrite"
+              ]
+            },
+            "network_access": {
+              "type": "boolean"
+            },
+            "approval_policy": {
+              "enum": [
+                "untrusted",
+                "onRequest",
+                "never"
+              ]
+            },
+            "approval_reviewer": {
+              "const": "host"
+            },
+            "writable_roots": {
+              "$ref": "#/$defs/stringSet"
+            },
+            "tools": {
+              "$ref": "#/$defs/stringSet"
+            },
+            "mcp_servers": {
+              "oneOf": [
+                {
+                  "const": "workspace"
+                },
+                {
+                  "$ref": "#/$defs/stringSet"
+                }
+              ],
+              "description": "workspace snapshots enabled MCP servers declared in trusted Codex project configuration layers for each workflow workspace. An explicit array is a fixed ceiling; omission or [] allows none."
+            }
           }
         },
         "host_capabilities": {
-          "type": "object", "additionalProperties": false, "required": ["computer_use"],
-          "properties": { "computer_use": { "type": "boolean" } }
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "computer_use"
+          ],
+          "properties": {
+            "computer_use": {
+              "type": "boolean"
+            }
+          }
         },
-        "codex_command": { "type": "string", "minLength": 1, "default": "codex" }
+        "codex_command": {
+          "type": "string",
+          "minLength": 1,
+          "default": "codex"
+        }
       }
     },
     "workflow_defaults": {
-      "type": "object", "additionalProperties": false,
-      "required": ["default_preset", "presets", "preset_recommendations"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "default_preset",
+        "presets",
+        "preset_recommendations"
+      ],
+      "dependentRequired": {
+        "preset_tiers": [
+          "default_tier"
+        ],
+        "default_tier": [
+          "preset_tiers"
+        ]
+      },
       "properties": {
-        "default_preset": { "type": "string", "minLength": 1 },
+        "default_tier": {
+          "type": "string",
+          "minLength": 1
+        },
+        "preset_tiers": {
+          "type": "object",
+          "minProperties": 3,
+          "maxProperties": 3,
+          "additionalProperties": {
+            "type": "object",
+            "minProperties": 4,
+            "maxProperties": 4,
+            "additionalProperties": {
+              "$ref": "#/$defs/preset"
+            }
+          }
+        },
+        "default_preset": {
+          "type": "string",
+          "minLength": 1
+        },
         "presets": {
-          "type": "object", "minProperties": 1,
-          "additionalProperties": { "$ref": "#/$defs/preset" }
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "$ref": "#/$defs/preset"
+          }
         },
         "preset_recommendations": {
           "type": "object",
-          "additionalProperties": { "type": "object" }
+          "additionalProperties": {
+            "type": "object"
+          }
         }
       }
     }
   },
   "$defs": {
     "stringSet": {
-      "type": "array", "uniqueItems": true,
-      "items": { "type": "string", "minLength": 1 }
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
     },
     "preset": {
-      "type": "object", "additionalProperties": false,
-      "required": ["model", "reasoning_effort"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "model",
+        "reasoning_effort"
+      ],
       "properties": {
-        "model": { "type": "string", "minLength": 1 },
-        "reasoning_effort": { "type": "string", "minLength": 1 },
-        "service_tier": { "type": "string", "minLength": 1 }
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reasoning_effort": {
+          "type": "string",
+          "minLength": 1
+        },
+        "service_tier": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     }
   }

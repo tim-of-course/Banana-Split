@@ -1,9 +1,10 @@
-import { normalize, resolve, sep } from "node:path";
+import { basename, normalize, resolve } from "node:path";
 import type { AppServer } from "./app-server.js";
-import { ceilingForWorkspace } from "./config.js";
+import { allTierPresets } from "./presets.js";
+import { ceilingForWorkspace, permissionPath, withinWritableRoot } from "./config.js";
 import type {
   AgentRecord, DurableState, JsonObject, MaterialEvent, PermissionPolicy, Preset,
-  RuntimeConfig, TerminalFact, ToolFailure, WorkflowRecord
+  RuntimeConfig, TerminalFact, ToolFailure, WorkflowRecord, PresetTiers
 } from "./model.js";
 import { failure, id, now, shortId } from "./model.js";
 import type { Store } from "./store.js";
@@ -13,9 +14,15 @@ import { handleHostTool } from "./host-actions.js";
 
 export type ToolResult = ({ ok: true } & JsonObject) | ToolFailure;
 
+const TURN_COMPLETION_INSTRUCTION = "Close each turn with exactly one successful banana_wait, banana_ask, banana_request_host, or banana_finish, then make your next message the final response for this turn, with no intervening commentary or tool calls. Do not repeat the closing call. The runtime commits the disposition and releases your active-turn slot only after that final response; it resumes you in a new turn when needed.";
+
 export class Engine {
   readonly state: DurableState;
   private scheduling = false;
+  private recovering = false;
+  private threadsToReconnect = new Set<string>();
+  private pendingFileChanges = new Map<string, unknown>();
+  private startingTurns = new Map<string, { completions: JsonObject[]; ready: Promise<void> }>();
   private pollWaiters = new Map<string, Set<() => void>>();
 
   constructor(readonly config: RuntimeConfig, readonly store: Store, readonly app: AppServer) {
@@ -25,11 +32,22 @@ export class Engine {
   }
 
   async initialize(): Promise<void> {
-    await this.app.start();
-    this.app.validateMcpServers(this.config.runtime.permission_ceiling.mcp_servers ?? []);
-    await this.app.validatePresets(this.config.workflow_defaults.presets);
+    this.recovering = true;
+    const newNativeServer = await this.app.start();
+    if (newNativeServer) {
+      for (const workflow of Object.values(this.state.workflows)) {
+        for (const approval of Object.values(workflow.approvals)) {
+          if (approval.status !== "pending") continue;
+          approval.status = "invalidated";
+          this.event(workflow, "approval_invalidated", `Approval ${approval.id} belongs to the previous native server`, approval.agent_id, approval.id);
+        }
+      }
+      this.persist();
+    }
+    await this.app.validatePresets(this.config.workflow_defaults.preset_tiers ? allTierPresets(this.config.workflow_defaults.preset_tiers) : this.config.workflow_defaults.presets);
     await this.app.probe(AGENT_TOOL_SPECS);
     for (const workflow of Object.values(this.state.workflows)) {
+      if (workflow.preset_tiers && !["completed", "failed", "cancelled"].includes(workflow.status)) await this.app.validatePresets(allTierPresets(workflow.preset_tiers));
       for (const request of Object.values(workflow.host_requests)) {
         if (request.status === "in_progress") {
           request.status = "uncertain";
@@ -45,11 +63,12 @@ export class Engine {
       }
       for (const agent of Object.values(workflow.agents)) {
         if (agent.state === "active") await this.reconcileActive(workflow, agent);
-        else if (agent.thread_id && !["failed", "cancelled"].includes(agent.state)) await this.reconnectThread(workflow, agent);
+        else if (agent.thread_id && !["completed", "failed", "cancelled"].includes(agent.state)) this.threadsToReconnect.add(agent.thread_id);
       }
       this.recomputeWorkflow(workflow);
     }
     this.persist();
+    this.recovering = false;
     void this.schedule();
   }
 
@@ -61,12 +80,34 @@ export class Engine {
     const found = this.byThread(threadId);
     if (!found) return failure("not_found", "Managed thread identity is unknown");
     const { workflow, agent } = found;
-    if (agent.state !== "active" || agent.active_turn_id !== turnId) return failure("invalid_state", "Tool call is not bound to the agent's active turn", { workflow_id: workflow.id, agent_id: agent.id, state: agent.state });
-    if (agent.turn_closing) return failure("turn_closing", "A turn-closing disposition is already armed", { workflow_id: workflow.id, agent_id: agent.id });
-    try { return await handleAgentTool(this, workflow, agent, name, args) }
+    const record = (result: ToolResult): ToolResult => {
+      if (!result.ok) {
+        const event = this.event(workflow, "tool_rejected", `${agent.short_id}: ${name.slice(0, 80)} rejected (${result.error.code})`, agent.id);
+        event.details = { tool: name.slice(0, 80), code: result.error.code, turn_id: turnId,
+          ...(result.error.agent_id ? { target_agent_id: result.error.agent_id } : {}),
+          ...(result.error.request_id ? { request_id: result.error.request_id } : {}) };
+        try { this.persist() }
+        catch (error) {
+          return failure("persistence_failed", error instanceof Error ? error.message : String(error), {
+            workflow_id: workflow.id, agent_id: agent.id, side_effects: result.error.side_effects
+          });
+        }
+      }
+      return result;
+    };
+    if (agent.state !== "active" || agent.active_turn_id !== turnId) return record(failure("invalid_state", "Tool call is not bound to the agent's active turn", { workflow_id: workflow.id, agent_id: agent.id, state: agent.state }));
+    if (agent.attention_codes.includes("cancellation_requested")) return record(failure("invalid_state", "Cancellation requested. End this response without further tool calls.", { workflow_id: workflow.id, agent_id: agent.id, state: agent.state }));
+    if (agent.turn_closing) return record(failure("turn_closing", "Turn is closing. Send your final response for this turn now. Do not call any tools.", { workflow_id: workflow.id, agent_id: agent.id }));
+    try {
+      const result = await handleAgentTool(this, workflow, agent, name, args);
+      if (!result.ok) return record(result);
+      return result.turn_closing === true
+        ? { ...result, instruction: "Turn is closing. Send your final response for this turn now. Do not call any tools. The runtime will resume you in a new turn when needed." }
+        : { ...result, turn_closing: false, instruction: "Your turn remains open. Continue useful work. Before your final response, close with banana_wait, banana_ask, banana_request_host, or banana_finish." };
+    }
     catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return failure(stableErrorCode(message), message, { workflow_id: workflow.id, agent_id: agent.id });
+      return record(failure(stableErrorCode(message), message, { workflow_id: workflow.id, agent_id: agent.id }));
     }
   }
 
@@ -82,11 +123,16 @@ export class Engine {
     return Object.values(this.state.workflows).flatMap((workflow) => Object.values(workflow.agents)).filter((agent) => agent.state === "active").length;
   }
 
+  async nameThread(workflow: WorkflowRecord, agent: AgentRecord): Promise<void> {
+    await this.app.setThreadName(agent.thread_id!, `${basename(workflow.workspace)}: ${label(agent.task)} [${agent.short_id}]`);
+  }
+
   enqueue(workflow: WorkflowRecord, agent: AgentRecord, reason: string): void {
     if (["completed", "failed", "cancelled", "submitted", "pending_context"].includes(agent.state)) return;
     if (agent.state === "active" || agent.queued) return;
     agent.state = "queued";
     agent.queued = true;
+    agent.last_queue_reason = reason;
     agent.wait = undefined;
     agent.attention_codes = agent.attention_codes.filter((code) => code !== "no_disposition");
     this.state.runnable.push({ sequence: this.state.next_runnable_sequence++, workflow_id: workflow.id, agent_id: agent.id });
@@ -120,6 +166,7 @@ export class Engine {
       const done = () => { clearTimeout(timer); set.delete(done); resolvePromise() };
       set.add(done); this.pollWaiters.set(workflowId, set);
       timer = setTimeout(done, timeoutMs);
+      timer.unref(); // A disconnected long poll must not hold the runtime open at shutdown.
     });
   }
 
@@ -145,7 +192,24 @@ export class Engine {
   }
 
   adviceEligible(advisor: AgentRecord, requesterId: string): boolean {
-    return advisor.id !== requesterId && ["queued", "active", "waiting"].includes(advisor.state) && !advisor.turn_closing;
+    return advisor.id !== requesterId && advisor.state !== "pending_context" && this.messageEligible(advisor);
+  }
+
+  messageEligible(agent: AgentRecord): boolean {
+    return ["pending_context", "queued", "active", "waiting"].includes(agent.state)
+      && !agent.attention_codes.includes("cancellation_requested")
+      && (!agent.turn_closing || ["wait", "ask", "request_host"].includes(agent.disposition?.type ?? ""));
+  }
+
+  childRecovery(workflow: WorkflowRecord, child: AgentRecord): JsonObject {
+    return { child_id: child.id, state: child.state, wait: child.wait ?? null,
+      turn_closing: child.turn_closing, closing_into: child.disposition?.type ?? null,
+      pending_approval_ids: Object.values(workflow.approvals).filter(a => a.agent_id === child.id && a.status === "pending").map(a => a.id),
+      next_action: child.state === "submitted" ? "Review this child's submission with banana_review."
+        : ["completed", "failed", "cancelled"].includes(child.state) ? "Inspect the retained result or terminal fact; there is no current submission to review."
+        : child.state === "pending_context" ? "Close the spawning parent turn to let inherited context become available."
+        : child.disposition?.type === "finish" ? "Wait for the child's closing turn to commit its submission."
+        : "If the work is ready, send this child a request to submit with banana_finish, then wait for its submission. An ordinary status message is not a submission. Resolve any remaining dependencies first; cancellation is only for stopping work." };
   }
 
   narrowPermissions(parent: PermissionPolicy, request: unknown, workspace: string): PermissionPolicy {
@@ -169,8 +233,8 @@ export class Engine {
     }
     if (value.writable_roots !== undefined) {
       if (!Array.isArray(value.writable_roots) || value.writable_roots.some((item) => typeof item !== "string")) throw new Error("writable_roots must be strings");
-      const roots = (value.writable_roots as string[]).map((item) => normalize(resolve(workspace, item)));
-      for (const root of roots) if (!parent.writable_roots.some((allowedRoot) => within(root, allowedRoot))) throw widening("writable_roots");
+      const roots = (value.writable_roots as string[]).map((item) => permissionPath(resolve(workspace, item)));
+      for (const root of roots) if (!parent.writable_roots.some((allowedRoot) => withinWritableRoot(root, allowedRoot))) throw widening("writable_roots");
       result.writable_roots = roots;
     }
     if (value.tools !== undefined) throw new Error("app_server_unsupported: current App Server does not expose an enforceable generic built-in tool allowlist");
@@ -184,9 +248,9 @@ export class Engine {
     return result;
   }
 
-  createWorkflow(task: string, details: JsonObject | undefined, workspaceValue: string, presets: Record<string, Preset>, recommendations: Record<string, JsonObject>, defaultPreset: string, rootPreset: string, rootPermissions: unknown, hostReported: boolean): WorkflowRecord {
+  createWorkflow(task: string, details: JsonObject | undefined, workspaceValue: string, presets: Record<string, Preset>, recommendations: Record<string, JsonObject>, defaultPreset: string, rootPreset: string, rootPermissions: unknown, hostReported: boolean, tierConfig?: { preset_tiers: PresetTiers; active_tier: string }, workspaceMcp?: string[]): WorkflowRecord {
     const workspace = normalize(resolve(workspaceValue));
-    const ceiling = ceilingForWorkspace(this.config, workspace);
+    const ceiling = ceilingForWorkspace(this.config, workspace, workspaceMcp);
     const permissions = this.narrowPermissions(ceiling, rootPermissions, workspace);
     const workflowId = id("wf"); const rootId = id("agt"); const timestamp = now();
     const root: AgentRecord = {
@@ -197,7 +261,9 @@ export class Engine {
     };
     const workflow: WorkflowRecord = {
       id: workflowId, short_id: shortId(workflowId), root_id: rootId, task, workspace, status: "running", spawn_frozen: false,
-      preset_snapshot: structuredClone(presets), preset_recommendations: structuredClone(recommendations), default_preset: defaultPreset,
+      preset_snapshot: structuredClone(presets),
+      preset_recommendations: structuredClone(Object.fromEntries(Object.entries(recommendations).filter(([name]) => name in presets))), default_preset: defaultPreset,
+      ...(tierConfig ? structuredClone(tierConfig) : {}),
       permission_ceiling: ceiling,
       host_capabilities: { computer_use: this.config.runtime.host_capabilities.computer_use && hostReported },
       agents: { [rootId]: root }, advice_requests: {}, host_requests: {}, approvals: {}, events: [], next_event_sequence: 1,
@@ -234,7 +300,7 @@ export class Engine {
   }
 
   async schedule(): Promise<void> {
-    if (this.scheduling) return;
+    if (this.recovering || this.scheduling) return;
     this.scheduling = true;
     try {
       while (this.activeCount() < this.config.runtime.scheduler.max_active_turns && this.state.runnable.length) {
@@ -251,6 +317,13 @@ export class Engine {
   }
 
   async dispatch(workflow: WorkflowRecord, agent: AgentRecord): Promise<void> {
+    if (this.threadsToReconnect.delete(agent.thread_id!)) {
+      await this.reconnectThread(workflow, agent);
+      // A failed reconnect or cancellation while awaiting it must not start a turn.
+      if (agent.state !== "queued") return;
+    }
+    const tier = workflow.active_tier;
+    if (tier) agent.resolved_preset = structuredClone(workflow.preset_snapshot[agent.requested_preset]!);
     const intent = id("dispatch");
     const assigned = agent.mailbox.filter((item) => !item.assigned_turn_id);
     for (const item of assigned) item.assigned_turn_id = intent;
@@ -265,6 +338,10 @@ export class Engine {
     agent.updated_at = now();
     this.event(workflow, "turn_dispatching", `${agent.short_id} acquired an active-turn lease`, agent.id);
     this.persist();
+    const earlyCompletions: JsonObject[] = [];
+    let releaseStart!: () => void;
+    const ready = new Promise<void>(resolve => { releaseStart = resolve });
+    this.startingTurns.set(agent.id, { completions: earlyCompletions, ready });
     try {
       const input = agent.latest_turn_id ? this.delta(workflow, agent, assigned) : this.bootstrap(workflow, agent, assigned);
       const response = await this.app.startTurn(agent.thread_id!, input, agent.resolved_preset, agent.permissions);
@@ -272,16 +349,20 @@ export class Engine {
       const turnId = String(turn.id);
       agent.active_turn_id = turnId;
       agent.latest_turn_id = turnId;
+      if (tier) (agent.routing_history ??= []).push({ turn_id: turnId, tier, preset: agent.requested_preset, resolved_preset: structuredClone(agent.resolved_preset) });
       for (const item of assigned) item.assigned_turn_id = turnId;
       const turnRouting = observedTurn(response);
       if (Object.keys(turnRouting).length) agent.observed_routing = { ...(agent.observed_routing ?? {}), ...turnRouting };
       this.event(workflow, "turn_started", `${agent.short_id} turn ${turnId} started`, agent.id);
       this.persist();
+      if (agent.attention_codes.includes("cancellation_requested")) void this.app.interrupt(agent.thread_id!, turnId).catch(() => undefined);
+      const completed = earlyCompletions.find(turn => turn.id === turnId);
+      if (completed) await this.commitTurn(workflow, agent, completed);
     } catch (error) {
       this.failAgent(workflow, agent, "app_server_unsupported", `turn/start failed: ${String(error)}`, "possible");
       this.persist();
       void this.schedule();
-    }
+    } finally { this.startingTurns.delete(agent.id); releaseStart() }
   }
 
   bootstrap(workflow: WorkflowRecord, agent: AgentRecord, inputs: JsonObject[]): string {
@@ -290,22 +371,33 @@ export class Engine {
         version: 1,
         identity: { workflow_id: workflow.id, agent_id: agent.id, short_id: agent.short_id, parent_id: agent.parent_id ?? null },
         task: agent.task,
+        details: agent.parent_id ? agent.details ?? null : workflow.details ?? null,
         brief: agent.brief ?? null,
         workspace: workflow.workspace,
         context_provenance: agent.provenance,
         requested_preset: agent.requested_preset,
         resolved_preset: agent.resolved_preset,
         available_presets: workflow.preset_snapshot,
+        ...(workflow.active_tier ? { active_tier: workflow.active_tier } : {}),
         preset_recommendations: workflow.preset_recommendations,
         effective_permissions: agent.permissions,
         advertised_host_capabilities: Object.entries(workflow.host_capabilities).filter(([, enabled]) => enabled).map(([name]) => name),
+        capacity_scope: "runtime",
         max_active_turns: this.config.runtime.scheduler.max_active_turns,
         instructions: [
-          "You are an independent managed Banana Split agent in the exact shared workspace above.",
+          "You are an independent managed Banana Split agent in the exact shared workspace above. Scope discovery and inspection to the paths and operations allowed by your assignment.",
+          "Native relative paths resolve from your workflow workspace. A shell tool call with a different workdir does not change apply_patch's base directory. Use the assigned absolute file paths in patches; writable_roots restrict permission, not the working directory. Writable roots are resolved paths: when an assignment names the same directory through a symlink, use its resolved path under the effective writable roots for edits. The native patch tool rejects symlink traversal even after approval.",
           "Use only banana_* tools for orchestration. Native delegation and direct Computer Use are unavailable.",
+          "A sandbox-denied command does not automatically request approval. For required work that has not been declined by the host, when your effective approval policy permits it, explicitly request an escalated rerun through the native shell tool (sandbox_permissions: require_escalated with a justification, when exposed) before reporting the work blocked. The host handles that approval. A host/user rejection is a decision, not a sandbox error: do not repeat the rejected operation or try another path or tool to perform it. Continue other authorized work and report the remaining limitation to your parent or in your root result.",
+          "Choose presets only from available_presets. Only the host can change the workflow tier or preset definitions; a host change takes effect on your next turn.",
           "The main host executes advertised host capabilities; use a managed agent with an appropriate available preset when you need model judgment.",
-          "A non-root result is only proposed until your direct parent accepts it.",
-          "End each useful turn with exactly one of banana_wait, banana_ask, banana_request_host, or banana_finish.",
+          "When parent_id is null, you are the root: banana_finish completes this workflow and reports to the host. Otherwise it proposes your result for direct-parent review.",
+          "Before accepting a child's result, verify its evidence against the assignment. Use banana_review with decision revise for unmet requirements or unresolved findings; accept when the submission meets the assignment.",
+          "When your assigned work is ready, submit it with banana_finish. A banana_send progress message does not submit your result. Use to: 'parent' to contact your direct parent; banana_wait children accepts only your own direct children, and messages:true waits for messages from parents or peers.",
+          "Finish useful independent work and send any progress updates before closing the turn. Call banana_wait only for a real child or message dependency; it returns immediately rather than pausing execution.",
+          TURN_COMPLETION_INSTRUCTION,
+          "All banana_* dynamic tools return JSON text. In JavaScript, parse each result and check ok before reading IDs. Example when child work is your only remaining dependency: const child = JSON.parse(await tools.banana_spawn({task: 'Review the changes', context: {source: 'inherit'}})); if (!child.ok) throw new Error(JSON.stringify(child.error)); const waiting = JSON.parse(await tools.banana_wait({children: [child.agent_id]})); if (!waiting.ok) throw new Error(JSON.stringify(waiting.error)); Then send your final response for this turn.",
+          "Finish example: const result = JSON.parse(await tools.banana_finish({result: {outcome: 'success', summary: 'Completed the assigned work'}})); text(result); Put outcome, summary, and optional details inside result. On success, send your final response for this turn.",
           "Coordinate overlapping edits explicitly; Banana Split does not create worktrees or file locks."
         ],
         assigned_inputs: inputs
@@ -317,8 +409,10 @@ export class Engine {
     return JSON.stringify({ banana_split_delta: {
       identity: { workflow_id: workflow.id, agent_id: agent.id, short_id: agent.short_id },
       state: agent.state,
+      ...(workflow.active_tier ? { active_tier: workflow.active_tier, available_presets: workflow.preset_snapshot, resolved_preset: agent.resolved_preset } : {}),
       direct_children: agent.children.map((childId) => { const child = workflow.agents[childId]!; return { id: child.id, short_id: child.short_id, state: child.state, task: label(child.task) } }),
       unresolved_obligations: this.obligations(workflow, agent),
+      instructions: [TURN_COMPLETION_INSTRUCTION],
       assigned_inputs: inputs
     } }, null, 2);
   }
@@ -353,6 +447,12 @@ export class Engine {
     const status = String(turn.status);
     const turnId = String(turn.id);
     agent.latest_turn_id = turnId;
+    for (const approval of Object.values(workflow.approvals)) {
+      if (approval.agent_id === agent.id && approval.turn_id === turnId && approval.status === "pending") {
+        approval.status = "invalidated";
+        this.event(workflow, "approval_invalidated", `Approval ${approval.id} expired with turn ${turnId}`, agent.id, approval.id);
+      }
+    }
     this.event(workflow, "active_capacity_changed", `${agent.short_id} released active-turn lease ${turnId}`, agent.id);
     const cancelling = agent.attention_codes.includes("cancellation_requested") || workflow.status === "cancelling";
     if (cancelling) {
@@ -388,9 +488,9 @@ export class Engine {
       if (!agent.attention_codes.includes("no_disposition")) agent.attention_codes.push("no_disposition");
       this.event(workflow, "attention_required", `${agent.short_id} ended without a disposition`, agent.id);
     } else if (disposition.type === "wait") {
-      const ready = disposition.children.some((childId) => ["submitted", "completed", "failed", "cancelled"].includes(workflow.agents[childId]?.state ?? ""))
-        || (disposition.messages && agent.mailbox.some((item) => !item.assigned_turn_id));
-      if (ready) { agent.state = "waiting"; this.enqueue(workflow, agent, "wait dependency already satisfied") }
+      const readyChildren = disposition.children.filter((childId) => ["submitted", "completed", "failed", "cancelled"].includes(workflow.agents[childId]?.state ?? ""));
+      const messageReady = disposition.messages && agent.mailbox.some((item) => !item.assigned_turn_id);
+      if (readyChildren.length || messageReady) { agent.state = "waiting"; this.enqueue(workflow, agent, [readyChildren.length ? `ready children: ${readyChildren.join(", ")}` : "", messageReady ? "buffered message" : ""].filter(Boolean).join("; ")) }
       else { agent.state = "waiting"; agent.wait = { children: disposition.children, messages: disposition.messages, reason: "declared_wait" } }
     } else if (disposition.type === "ask") {
       const request = workflow.advice_requests[disposition.request_id]!;
@@ -409,14 +509,16 @@ export class Engine {
     } else if (disposition.type === "request_host") {
       const request = workflow.host_requests[disposition.request_id]!;
       request.status = "pending";
+      request.pending_sequence = this.state.next_host_request_sequence++;
       agent.state = "waiting"; agent.wait = { children: [], messages: false, reason: `host:${request.id}` };
       if (agent.parent_id) this.deliver(workflow, workflow.agents[agent.parent_id]!, agent.id, "host_request_visible", request.task, { request_id: request.id, requester_id: agent.id, capability: request.capability });
       this.event(workflow, "host_action_required", `${agent.short_id} requested ${request.capability}: ${request.task}`, agent.id, request.id);
     } else {
-      if (this.hasBlockers(workflow, agent)) {
+      const pendingInputIds = agent.mailbox.filter((item) => !item.assigned_turn_id).map((item) => item.id);
+      if (this.hasBlockers(workflow, agent) || pendingInputIds.length) {
         agent.state = "waiting";
+        this.deliver(workflow, agent, "runtime", "finish_deferred", "Finish was deferred because new inputs or obligations need attention", { ...this.blockers(workflow, agent), pending_input_ids: pendingInputIds });
         this.enqueue(workflow, agent, "finish_deferred");
-        this.deliver(workflow, agent, "runtime", "finish_deferred", "Finish was deferred because obligations changed", this.blockers(workflow, agent));
       } else if (agent.parent_id) {
         agent.state = "submitted"; agent.submission = disposition.result;
         agent.submissions.push({ result: disposition.result, submitted_at: now() });
@@ -425,6 +527,7 @@ export class Engine {
         this.deliver(workflow, parent, agent.id, "child_submission", undefined, { child_id: agent.id, result: disposition.result });
       } else {
         agent.state = "completed"; agent.result = disposition.result;
+        this.invalidateApprovals(workflow, agent);
         this.event(workflow, "root_completed", `Root ${agent.short_id} finished with outcome ${disposition.result.outcome}`, agent.id);
       }
     }
@@ -459,7 +562,24 @@ export class Engine {
     return message;
   }
 
-  cancelSubtree(workflow: WorkflowRecord, target: AgentRecord, reason = "cancelled"): { settling: boolean; affected: string[] } {
+  invalidateApprovals(workflow: WorkflowRecord, agent: AgentRecord): void {
+    for (const approval of Object.values(workflow.approvals)) {
+      if (approval.agent_id !== agent.id || approval.status !== "pending") continue;
+      approval.status = "invalidated";
+      // A standalone elicitation has no active native turn for interrupt to cancel.
+      if (approval.method === "mcpServer/elicitation/request" && approval.turn_id === null) {
+        const event = this.event(workflow, "approval_invalidated", `Standalone elicitation ${approval.id} invalidated because its agent ended`, agent.id, approval.id);
+        try {
+          this.app.respond(approval.request_id, { action: "cancel" });
+          approval.response = { action: "cancel" }; approval.answered_at = now();
+        } catch (error) {
+          event.details = { response_error: String(error) };
+        }
+      }
+    }
+  }
+
+  cancelSubtree(workflow: WorkflowRecord, target: AgentRecord, reason = "cancelled", interruptTarget = true): { settling: boolean; affected: string[] } {
     const affected: string[] = [];
     const visit = (agent: AgentRecord) => {
       for (const childId of agent.children) visit(workflow.agents[childId]!);
@@ -467,7 +587,10 @@ export class Engine {
       affected.push(agent.id);
       if (agent.state === "active") {
         if (!agent.attention_codes.includes("cancellation_requested")) agent.attention_codes.push("cancellation_requested");
-        if (agent.thread_id && agent.active_turn_id) void this.app.interrupt(agent.thread_id, agent.active_turn_id).catch(() => undefined);
+        this.invalidateApprovals(workflow, agent);
+        // An approval's cancel response already interrupts its requesting turn.
+        // Pending turn/start calls are interrupted when the native ID arrives.
+        if ((agent.id !== target.id || interruptTarget) && agent.thread_id && agent.active_turn_id && !agent.active_turn_id.startsWith("dispatch_")) void this.app.interrupt(agent.thread_id, agent.active_turn_id).catch(() => undefined);
       } else this.finishCancellation(workflow, agent);
     };
     visit(target);
@@ -480,7 +603,7 @@ export class Engine {
     agent.state = "failed"; agent.active_turn_id = undefined; agent.queued = false; agent.turn_closing = false; agent.disposition = undefined; agent.wait = undefined;
     agent.terminal_fact = this.terminalFact(code, message, [workflow.id, agent.id], sideEffects, details);
     this.state.runnable = this.state.runnable.filter((item) => item.agent_id !== agent.id);
-    for (const approval of Object.values(workflow.approvals).filter((item) => item.agent_id === agent.id && item.status === "pending")) approval.status = "invalidated";
+    this.invalidateApprovals(workflow, agent);
     for (const childId of agent.children) this.cancelSubtree(workflow, workflow.agents[childId]!, "ancestor_failed");
     this.resolveRequestsForTerminalAgent(workflow, agent, "failed");
     this.event(workflow, "agent_failed", `${agent.short_id} failed: ${message}`, agent.id);
@@ -497,7 +620,7 @@ export class Engine {
     agent.attention_codes = [];
     agent.terminal_fact = this.terminalFact("invalid_state", "Agent work was explicitly cancelled", [workflow.id, agent.id], "possible");
     this.state.runnable = this.state.runnable.filter((item) => item.agent_id !== agent.id);
-    for (const approval of Object.values(workflow.approvals).filter((item) => item.agent_id === agent.id && item.status === "pending")) approval.status = "invalidated";
+    this.invalidateApprovals(workflow, agent);
     this.resolveRequestsForTerminalAgent(workflow, agent, "cancelled");
     this.event(workflow, "agent_cancelled", `${agent.short_id} cancelled; side effects may remain`, agent.id);
     if (agent.parent_id) {
@@ -521,8 +644,9 @@ export class Engine {
     }
     for (const request of Object.values(workflow.host_requests)) {
       if (request.requester_id !== agent.id || !["armed", "pending", "in_progress", "uncertain"].includes(request.status)) continue;
-      if (request.status === "in_progress") request.status = "uncertain";
-      else if (request.status !== "uncertain") {
+      if (request.status === "in_progress" || request.status === "uncertain") {
+        request.status = "uncertain"; request.resolution = "cancelled"; request.resolved_at = now();
+      } else {
         request.status = "cancelled"; request.resolution = "cancelled"; request.resolved_at = now();
         request.terminal_fact = this.terminalFact("invalid_state", `Host request requester ${terminal}; request cancelled`, [request.id, agent.id]);
       }
@@ -543,16 +667,21 @@ export class Engine {
   private async activatePendingChildren(workflow: WorkflowRecord, parent: AgentRecord, turnId: string): Promise<void> {
     const children = this.pendingContextChildren(workflow, parent, turnId).filter((child) => child.context_fork_started);
     for (const child of children) {
+      if (child.state !== "pending_context") continue;
       try {
-        const response = await this.app.forkThread(parent.thread_id!, turnId, workflow.workspace, child.resolved_preset, child.permissions);
+        const threadConfig = await this.app.prepareThread(workflow.workspace, child.permissions.mcp_servers);
+        if (child.state !== "pending_context") continue;
+        const response = await this.app.forkThread(parent.thread_id!, turnId, workflow.workspace, child.resolved_preset, child.permissions, threadConfig);
         child.thread_id = String((response.thread as JsonObject).id);
+        await this.nameThread(workflow, child);
         child.provenance.parent_turn_id = turnId;
         child.pending_context_turn_id = undefined;
         child.context_fork_started = undefined;
         child.observed_routing = observedThread(response);
+        if (child.state === "cancelled") continue;
         child.state = "waiting";
         this.enqueue(workflow, child, "inherited context ready");
-      } catch (error) { this.failAgent(workflow, child, "app_server_unsupported", `thread/fork failed: ${String(error)}`) }
+      } catch (error) { if (child.state !== "cancelled") this.failAgent(workflow, child, "app_server_unsupported", `thread/fork failed: ${String(error)}`) }
     }
   }
 
@@ -573,6 +702,27 @@ export class Engine {
   }
 
   private async onAppNotification(method: string, params: JsonObject): Promise<void> {
+    if (method === "serverRequest/resolved") {
+      const found = this.byThread(String(params.threadId)); if (!found) return;
+      await this.startingTurns.get(found.agent.id)?.ready;
+      for (const approval of Object.values(found.workflow.approvals)) {
+        if (approval.agent_id === found.agent.id && approval.request_id === params.requestId && approval.status === "pending") {
+          approval.status = "invalidated";
+          this.event(found.workflow, "approval_invalidated", `Approval ${approval.id} was resolved by App Server`, found.agent.id, approval.id);
+          this.persist();
+        }
+      }
+      return;
+    }
+    if (method === "item/started" || method === "item/completed") {
+      const item = params.item as JsonObject | undefined;
+      if (item?.type === "fileChange" && this.byThread(String(params.threadId))) {
+        const key = fileChangeKey(params.threadId, params.turnId, item.id);
+        if (method === "item/started") this.pendingFileChanges.set(key, structuredClone(item.changes));
+        else this.pendingFileChanges.delete(key);
+      }
+      return;
+    }
     if (method === "thread/tokenUsage/updated") {
       const found = this.byThread(String(params.threadId)); if (!found) return;
       const usage = (params.tokenUsage ?? {}) as JsonObject;
@@ -590,12 +740,20 @@ export class Engine {
     const threadId = String(params.threadId);
     const found = this.byThread(threadId); if (!found) return;
     const turn = params.turn as JsonObject;
-    if (found.agent.state !== "active" || typeof turn?.id !== "string" || found.agent.active_turn_id !== turn.id) return;
+    if (found.agent.state !== "active" || typeof turn?.id !== "string") return;
+    const earlyCompletions = this.startingTurns.get(found.agent.id)?.completions;
+    if (earlyCompletions && found.agent.active_turn_id?.startsWith("dispatch_")) {
+      earlyCompletions.push(structuredClone(turn));
+      return;
+    }
+    if (found.agent.active_turn_id !== turn.id) return;
     await this.commitTurn(found.workflow, found.agent, turn);
   }
 
   private async onAppRequest(message: JsonObject): Promise<void> {
     const method = String(message.method); const params = (message.params ?? {}) as JsonObject;
+    const startingAgent = this.byThread(String(params.threadId))?.agent;
+    if (startingAgent) await this.startingTurns.get(startingAgent.id)?.ready;
     if (method === "item/tool/call") {
       const result = await this.agentTool(String(params.threadId), String(params.turnId), String(params.tool), (params.arguments ?? {}) as JsonObject);
       this.app.respond(message.id as string | number, { success: result.ok, contentItems: [{ type: "inputText", text: JSON.stringify(result) }] });
@@ -603,14 +761,35 @@ export class Engine {
     }
     if (["item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval", "item/tool/requestUserInput", "mcpServer/elicitation/request"].includes(method)) {
       const found = this.byThread(String(params.threadId));
-      if (!found) { this.app.respond(message.id as string | number, { decision: "decline" }); return }
+      if (!found) { this.app.respond(message.id as string | number, rejectedApprovalResponse(method, false)); return }
+      const details = approvalDetails(method, params);
+      if (method === "item/fileChange/requestApproval") {
+        const key = fileChangeKey(params.threadId, params.turnId, params.itemId);
+        const changes = this.pendingFileChanges.get(key);
+        if (changes !== undefined) details.file_changes = changes;
+        this.pendingFileChanges.delete(key);
+      }
       const approvalId = id("apr");
       found.workflow.approvals[approvalId] = {
         id: approvalId, workflow_id: found.workflow.id, agent_id: found.agent.id, thread_id: String(params.threadId),
-        turn_id: String(params.turnId), method, request_id: message.id as string | number,
+        turn_id: typeof params.turnId === "string" ? params.turnId : null, method, request_id: message.id as string | number,
         summary: approvalSummary(method, params), status: "pending",
-        details: approvalDetails(method, params)
+        details
       };
+      const cancelled = found.agent.attention_codes.includes("cancellation_requested") || found.workflow.status === "cancelling" || ["completed", "failed", "cancelled"].includes(found.agent.state);
+      // MCP elicitation can be a standalone server request with no native turn correlation.
+      const standalone = method === "mcpServer/elicitation/request" && params.turnId == null;
+      const unbound = !standalone && (found.agent.state !== "active" || found.agent.active_turn_id !== params.turnId || found.agent.turn_closing);
+      if (cancelled || unbound) {
+        const approval = found.workflow.approvals[approvalId]!;
+        approval.status = "invalidated";
+        approval.response = rejectedApprovalResponse(method, cancelled);
+        approval.answered_at = now();
+        this.event(found.workflow, "approval_invalidated", `Approval ${approvalId} rejected because ${cancelled ? "its agent is cancelled or terminal" : "it is not bound to an open active turn"}`, found.agent.id, approvalId);
+        this.persist();
+        this.app.respond(approval.request_id, approval.response);
+        return;
+      }
       this.event(found.workflow, "approval_required", `Approval ${approvalId}: ${approvalSummary(method, params)}`, found.agent.id, approvalId);
       this.persist(); return;
     }
@@ -619,38 +798,57 @@ export class Engine {
 
   private async reconnectThread(workflow: WorkflowRecord, agent: AgentRecord): Promise<void> {
     try {
-      const response = await this.app.resumeThread(agent.thread_id!, workflow.workspace, agent.resolved_preset, agent.permissions);
+      const threadConfig = await this.app.prepareThread(workflow.workspace, agent.permissions.mcp_servers);
+      if (["completed", "failed", "cancelled"].includes(agent.state)) return;
+      const response = await this.app.resumeThread(agent.thread_id!, workflow.workspace, agent.resolved_preset, agent.permissions, threadConfig);
       const thread = response.thread as JsonObject | undefined;
       if (!thread || thread.id !== agent.thread_id) throw new Error("App Server did not return the retained thread identity");
       const routing = observedThread(response);
       if (Object.keys(routing).length) agent.observed_routing = { ...(agent.observed_routing ?? {}), ...routing };
       this.event(workflow, "thread_reconnected", `${agent.short_id} reconnected to retained thread ${agent.thread_id}`, agent.id);
     } catch (error) {
-      if (agent.state === "completed") {
-        if (!agent.attention_codes.includes("reconciliation_required")) agent.attention_codes.push("reconciliation_required");
-        this.event(workflow, "reconciliation_required", `${agent.short_id} retained transcript could not be reconnected: ${String(error)}`, agent.id);
-      } else this.failAgent(workflow, agent, "reconciliation_required", `Retained thread could not be reconnected: ${String(error)}`, "possible");
+      if (["completed", "failed", "cancelled"].includes(agent.state)) return;
+      this.failAgent(workflow, agent, "reconciliation_required", `Retained thread could not be reconnected: ${String(error)}`, "possible");
     }
   }
 
   private async reconcileActive(workflow: WorkflowRecord, agent: AgentRecord): Promise<void> {
     if (!agent.thread_id) { this.failAgent(workflow, agent, "reconciliation_required", "Active agent had no thread id"); return }
+    const turnId = agent.active_turn_id;
+    const stillActive = () => agent.state === "active" && agent.active_turn_id === turnId;
     try {
-      const response = await this.app.resumeThread(agent.thread_id, workflow.workspace, agent.resolved_preset, agent.permissions);
+      const threadConfig = await this.app.prepareThread(workflow.workspace, agent.permissions.mcp_servers);
+      if (!stillActive()) return;
+      const response = await this.app.resumeThread(agent.thread_id, workflow.workspace, agent.resolved_preset, agent.permissions, threadConfig);
+      if (!stillActive()) return;
       let thread = response.thread as JsonObject;
       if (!thread || thread.id !== agent.thread_id) throw new Error("App Server did not return the active thread identity");
       if (!Array.isArray(thread.turns)) thread = (await this.app.readThread(agent.thread_id)).thread as JsonObject;
+      if (!stillActive()) return;
       const turns = (thread.turns ?? []) as JsonObject[];
-      const turn = turns.find((item) => item.id === agent.active_turn_id);
+      const turn = turns.find((item) => item.id === turnId);
       if (!turn) throw new Error("active turn not found");
       if (turn.status === "inProgress") {
         this.event(workflow, "turn_reconciled", `${agent.short_id} reattached to active turn ${String(agent.active_turn_id)}`, agent.id);
+        if (agent.attention_codes.includes("cancellation_requested") || workflow.status === "cancelling") {
+          await this.app.interrupt(agent.thread_id, String(turn.id));
+        }
         return;
       }
       this.event(workflow, "turn_reconciled", `${agent.short_id} recovered terminal turn ${String(turn.id)}`, agent.id);
       await this.commitTurn(workflow, agent, turn);
-    } catch (error) { this.failAgent(workflow, agent, "reconciliation_required", `Active turn state is ambiguous: ${String(error)}`, "possible") }
+    } catch (error) {
+      if (!stillActive()) return;
+      this.failAgent(workflow, agent, "reconciliation_required", `Active turn state is ambiguous: ${String(error)}`, "possible");
+    }
   }
+}
+
+function rejectedApprovalResponse(method: string, cancel: boolean): JsonObject {
+  if (method === "item/permissions/requestApproval") return { permissions: {}, scope: "turn" };
+  if (method === "item/tool/requestUserInput") return { answers: {} };
+  if (method === "mcpServer/elicitation/request") return { action: "cancel" };
+  return { decision: cancel ? "cancel" : "decline" };
 }
 
 function widening(axis: string): Error { const error = new Error(`permission_widening: ${axis} would broaden authority`); return error }
@@ -658,7 +856,6 @@ function stableErrorCode(message: string): string {
   for (const code of ["app_server_unsupported", "permission_widening", "persistence_failed"]) if (message.startsWith(code)) return code;
   return "invalid_input";
 }
-function within(child: string, parent: string): boolean { const a = normalize(resolve(child)).toLowerCase(); const b = normalize(resolve(parent)).toLowerCase(); return a === b || a.startsWith(b.endsWith(sep) ? b : `${b}${sep}`) }
 export function label(task: string): string { return task.replace(/\s+/g, " ").trim().slice(0, 96) }
 function observedThread(response: JsonObject): JsonObject {
   const result: JsonObject = {};
@@ -670,6 +867,10 @@ function observedTurn(response: JsonObject): JsonObject {
   if (response.reasoningEffort !== undefined) result.reasoningEffort = response.reasoningEffort;
   return result;
 }
+function fileChangeKey(threadId: unknown, turnId: unknown, itemId: unknown): string {
+  return JSON.stringify([threadId, turnId, itemId]);
+}
+
 function approvalDetails(method: string, params: JsonObject): JsonObject {
   const fields = method === "item/commandExecution/requestApproval"
     ? ["availableDecisions", "command", "cwd", "reason", "additionalPermissions"]
@@ -688,8 +889,17 @@ function approvalDetails(method: string, params: JsonObject): JsonObject {
         ? "details.response = {action: accept | decline | cancel, content: object | null, _meta: object | null}"
         : "decision is relayed as {decision}";
   const details: JsonObject = { response_contract: responseContract };
+  if (params.itemId !== undefined) details.itemId = params.itemId;
   for (const field of fields) if (params[field] !== undefined) details[field] = structuredClone(params[field]);
   if (method === "item/fileChange/requestApproval") details.availableDecisions = ["accept", "acceptForSession", "decline", "cancel"];
+  if (method === "item/commandExecution/requestApproval" || method === "item/fileChange/requestApproval") {
+    // App Server can omit decline from its UI choices while accepting it on the wire.
+    const decisions = (details.availableDecisions ?? ["accept", "cancel"]) as unknown[];
+    if (!decisions.includes("decline")) decisions.push("decline");
+    details.availableDecisions = decisions;
+    details.response_contract = 'Pass a decision value directly, for example decision: "accept"; Banana wraps it as the native {decision} response. decline rejects this operation and lets the agent continue; cancel interrupts the agent and cancels its subtree. details are retained for inspection, not delivered to the agent.';
+    if (method === "item/fileChange/requestApproval") details.response_contract += " Before deciding, inspect request.file_changes paths and diff from the native proposal. If absent, use banana_agent_inspect with transcript_limit to match turn_id and request.itemId; pending patches may be absent from that transcript, so missing evidence does not authorize approval.";
+  }
   return details;
 }
 function approvalSummary(method: string, params: JsonObject): string {

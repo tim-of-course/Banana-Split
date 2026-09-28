@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { homedir } from "node:os";
 import type { JsonObject, PermissionPolicy, Preset } from "./model.js";
 
 type RequestHandler = (message: JsonObject) => Promise<void>;
@@ -40,12 +41,18 @@ export class AppServer {
   onRequest(handler: RequestHandler): void { this.requestHandler = handler }
   onNotification(handler: NotificationHandler): void { this.notificationHandler = handler }
 
-  async start(): Promise<void> {
+  // True means this call launched a native process with a new RPC request namespace.
+  async start(): Promise<boolean> {
     this.stopping = false;
-    if (this.socket?.readyState === WebSocket.OPEN) return;
+    if (this.socket?.readyState === WebSocket.OPEN) return false;
+    let launched = false;
     try { await this.connect(500) }
     catch {
-      this.process = spawn(this.command, ownedAppServerArgs(this.port), { stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
+      // Reinstall removes versioned plugin directories; the server must outlive that cwd.
+      this.process = spawn(this.command, ownedAppServerArgs(this.port), { cwd: homedir(), stdio: ["ignore", "ignore", "pipe"], windowsHide: true, detached: process.platform !== "win32" });
+      launched = true;
+      let startupError: Error | undefined;
+      this.process.once("error", error => { startupError = error });
       this.process.stderr?.on("data", (chunk) => process.stderr.write(`[codex] ${String(chunk)}`));
       this.process.on("exit", (code) => {
         const error = new Error(`Codex App Server exited with code ${code ?? "unknown"}`);
@@ -55,23 +62,27 @@ export class AppServer {
       const deadline = Date.now() + 10000;
       while (!this.socket && Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 150));
+        if (startupError) throw new Error(`app_server_unsupported: could not launch ${this.command}: ${startupError.message}`);
         try { await this.connect(500) } catch {}
       }
       if (!this.socket) throw new Error(`app_server_unsupported: could not connect to App Server on ws://127.0.0.1:${this.port}`);
     }
     const initialized = await this.call("initialize", {
-      clientInfo: { name: "banana_split", title: "Banana Split", version: "1.0.0" },
+      clientInfo: { name: "banana_split", title: "Banana Split", version: "0.1.0" },
       capabilities: { experimentalApi: true }
     });
-    if (initialized.platformOs !== "windows") throw new Error(`Banana Split V1 requires Windows App Server, observed ${String(initialized.platformOs)}`);
+    if (!["windows", "macos"].includes(String(initialized.platformOs))) throw new Error(`Banana Split requires Windows or macOS App Server, observed ${String(initialized.platformOs)}`);
     this.notify("initialized", {});
     const config = await this.call("config/read", { includeLayers: false });
     this.effectiveConfig = (config.config && typeof config.config === "object" ? config.config : {}) as JsonObject;
     await this.call("model/list", { limit: 1, includeHidden: true });
+    return launched;
   }
 
   async stop(): Promise<void> {
     this.stopping = true;
+    for (const request of this.pending.values()) request.reject(new Error("App Server stopped"));
+    this.pending.clear();
     const socket = this.socket;
     const ownedProcess = this.process;
     this.socket = undefined;
@@ -126,8 +137,8 @@ export class AppServer {
     }
   }
 
-  validateMcpServers(allowedMcp: string[]): void {
-    const configured = (this.effectiveConfig.mcp_servers ?? {}) as JsonObject;
+  validateMcpServers(allowedMcp: string[], config = this.effectiveConfig): void {
+    const configured = (config.mcp_servers ?? {}) as JsonObject;
     const missing = allowedMcp.filter((name) => configured[name] === undefined);
     if (missing.length) throw new Error(`app_server_unsupported: configured MCP servers are unavailable: ${missing.join(", ")}`);
   }
@@ -145,28 +156,56 @@ export class AppServer {
     if (!((response.thread as JsonObject | undefined)?.id)) throw new Error("app_server_unsupported: dynamic tool probe did not return a thread id");
   }
 
-  isolationConfig(allowedMcp: string[]): JsonObject {
-    const configured = (this.effectiveConfig.mcp_servers ?? {}) as JsonObject;
+  isolationConfig(allowedMcp: string[], config = this.effectiveConfig): JsonObject {
+    const configured = (config.mcp_servers ?? {}) as JsonObject;
     const mcp: JsonObject = {};
     for (const name of Object.keys(configured)) {
       if (BANANA_HOST_MCP_SERVER_NAMES.includes(name as typeof BANANA_HOST_MCP_SERVER_NAMES[number])) continue;
       mcp[name] = { enabled: allowedMcp.includes(name) };
     }
     for (const name of BANANA_HOST_MCP_SERVER_NAMES) mcp[name] = { command: "disabled", enabled: false };
-    const plugins = (this.effectiveConfig.plugins ?? {}) as JsonObject;
+    const plugins = (config.plugins ?? {}) as JsonObject;
     const isolatedPlugins: JsonObject = {};
     for (const name of Object.keys(plugins)) isolatedPlugins[name] = { enabled: false };
     for (const name of BANANA_HOST_PLUGIN_NAMES) isolatedPlugins[name] = { enabled: false };
     return {
-      features: { multi_agent: false, computer_use: false, browser_use: false, in_app_browser: false, apps: false },
+      features: { multi_agent: false, goals: false, computer_use: false, browser_use: false, in_app_browser: false, apps: false },
       agents: { enabled: false },
       apps: { _default: { enabled: false } },
+      sandbox_workspace_write: { exclude_tmpdir_env_var: true, exclude_slash_tmp: true },
       mcp_servers: mcp,
       plugins: isolatedPlugins
     };
   }
 
-  async startThread(workspace: string, preset: Preset, permissions: PermissionPolicy, dynamicTools: JsonObject[]): Promise<JsonObject> {
+  async workspaceMcpServers(workspace: string): Promise<string[]> {
+    const response = await this.call("config/read", { includeLayers: true, cwd: workspace });
+    if (!response.config || typeof response.config !== "object" || !Array.isArray(response.layers)) {
+      throw new Error("app_server_unsupported: config/read did not return workspace configuration layers");
+    }
+    const configured = ((response.config as JsonObject).mcp_servers ?? {}) as JsonObject;
+    const projectNames = new Set<string>();
+    for (const layer of response.layers as JsonObject[]) {
+      if ((layer.name as JsonObject)?.type !== "project" || layer.disabledReason) continue;
+      for (const name of Object.keys(((layer.config as JsonObject)?.mcp_servers ?? {}) as JsonObject)) projectNames.add(name);
+    }
+    return [...projectNames].filter(name => {
+      const value = configured[name];
+      return !BANANA_HOST_MCP_SERVER_NAMES.includes(name as typeof BANANA_HOST_MCP_SERVER_NAMES[number])
+        && value !== null && typeof value === "object" && (value as JsonObject).enabled !== false;
+    });
+  }
+
+  async prepareThread(workspace: string, allowedMcp: string[]): Promise<JsonObject> {
+    const response = await this.call("config/read", { includeLayers: false, cwd: workspace });
+    if (!response.config || typeof response.config !== "object") throw new Error("app_server_unsupported: config/read did not return workspace configuration");
+    const config = response.config as JsonObject;
+    this.validateMcpServers(allowedMcp, config);
+    return this.isolationConfig(allowedMcp, config);
+  }
+
+  async startThread(workspace: string, preset: Preset, permissions: PermissionPolicy, dynamicTools: JsonObject[], preparedConfig?: JsonObject): Promise<JsonObject> {
+    const config = preparedConfig ?? await this.prepareThread(workspace, permissions.mcp_servers);
     return this.call("thread/start", {
       cwd: workspace,
       model: preset.model,
@@ -178,12 +217,21 @@ export class AppServer {
       dynamicTools,
       ephemeral: false,
       allowProviderModelFallback: false,
-      config: this.isolationConfig(permissions.mcp_servers),
+      config,
       serviceName: "banana_split"
     });
   }
 
-  async forkThread(parentThreadId: string, lastTurnId: string, workspace: string, preset: Preset, permissions: PermissionPolicy): Promise<JsonObject> {
+  async setThreadName(threadId: string, name: string): Promise<JsonObject> {
+    const response = await this.call("thread/name/set", { threadId, name });
+    // Read after naming: Codex then persists an empty queued thread's history.
+    // Reading before naming can hit an uninitialized history store.
+    await this.readThread(threadId);
+    return response;
+  }
+
+  async forkThread(parentThreadId: string, lastTurnId: string, workspace: string, preset: Preset, permissions: PermissionPolicy, preparedConfig?: JsonObject): Promise<JsonObject> {
+    const config = preparedConfig ?? await this.prepareThread(workspace, permissions.mcp_servers);
     return this.call("thread/fork", {
       threadId: parentThreadId,
       lastTurnId,
@@ -195,12 +243,13 @@ export class AppServer {
       approvalsReviewer: "user",
       sandbox: permissions.sandbox === "workspaceWrite" ? "workspace-write" : "read-only",
       runtimeWorkspaceRoots: permissions.writable_roots,
-      config: this.isolationConfig(permissions.mcp_servers),
+      config,
       ephemeral: false
     });
   }
 
-  resumeThread(threadId: string, workspace: string, preset: Preset, permissions: PermissionPolicy): Promise<JsonObject> {
+  async resumeThread(threadId: string, workspace: string, preset: Preset, permissions: PermissionPolicy, preparedConfig?: JsonObject): Promise<JsonObject> {
+    const config = preparedConfig ?? await this.prepareThread(workspace, permissions.mcp_servers);
     return this.call("thread/resume", {
       threadId,
       cwd: workspace,
@@ -210,7 +259,7 @@ export class AppServer {
       approvalsReviewer: "user",
       sandbox: permissions.sandbox === "workspaceWrite" ? "workspace-write" : "read-only",
       runtimeWorkspaceRoots: permissions.writable_roots,
-      config: this.isolationConfig(permissions.mcp_servers)
+      config
     });
   }
   readThread(threadId: string): Promise<JsonObject> { return this.call("thread/read", { threadId, includeTurns: true }) }
@@ -235,11 +284,21 @@ export class AppServer {
       approvalsReviewer: "user",
       runtimeWorkspaceRoots: permissions.writable_roots,
       sandboxPolicy: permissions.sandbox === "workspaceWrite"
-        ? { type: "workspaceWrite", writableRoots: permissions.writable_roots, networkAccess: permissions.network_access }
+        ? { type: "workspaceWrite", writableRoots: permissions.writable_roots, networkAccess: permissions.network_access, excludeTmpdirEnvVar: true, excludeSlashTmp: true }
         : { type: "readOnly", networkAccess: permissions.network_access }
     });
   }
-  interrupt(threadId: string, turnId: string): Promise<JsonObject> { return this.call("turn/interrupt", { threadId, turnId }) }
+  async interrupt(threadId: string, turnId: string): Promise<JsonObject> {
+    try { return await this.call("turn/interrupt", { threadId, turnId }) }
+    catch (error) {
+      let nativeError: JsonObject | undefined;
+      try { nativeError = JSON.parse(error instanceof Error ? error.message : "") as JsonObject } catch {}
+      if (nativeError?.code !== -32600 || nativeError.message !== "no active turn to interrupt") throw error;
+      // turn/start can return before its turn becomes active. Codex's empty-ID
+      // form interrupts startup too. Cancellation never resumes this agent again.
+      return this.call("turn/interrupt", { threadId, turnId: "" });
+    }
+  }
 
   private async receive(line: string): Promise<void> {
     if (!line.trim()) return;
@@ -288,9 +347,15 @@ function mapApproval(value: PermissionPolicy["approval_policy"]): string {
   return value === "onRequest" ? "on-request" : value;
 }
 
-function terminateProcessTree(child: ChildProcess): Promise<void> {
+export function terminateProcessTree(child: ChildProcess): Promise<void> {
   const pid = child.pid;
   if (!pid || child.exitCode !== null) return Promise.resolve();
+  if (process.platform !== "win32") {
+    // The owned App Server starts a separate process group, including its tools.
+    try { process.kill(-pid, "SIGKILL") }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") return Promise.reject(error) }
+    return new Promise((resolve) => child.once("exit", () => resolve()));
+  }
   return new Promise((resolve, reject) => {
     const killer = spawn("taskkill.exe", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
     killer.once("error", reject);

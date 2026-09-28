@@ -2,7 +2,9 @@
 
 This is a documentation-only traceability matrix for the normative V1 specification. It covers every core invariant in Section 24, every acceptance scenario in Section 28, and every focused verification expectation in Section 29. It does not select an implementation architecture, library, storage technology, or internal API.
 
-The source specification is [BANANA_SPLIT_V1_SPEC.md](BANANA_SPLIT_V1_SPEC.md), revision 2.
+The source specification is [BANANA_SPLIT_V1_SPEC.md](BANANA_SPLIT_V1_SPEC.md), revision 4.
+
+The installed coordination-fix checks and live runs are recorded in [FIVE_FIXES_VERIFICATION.md](FIVE_FIXES_VERIFICATION.md). The concluding internal-alpha assessment and current installed checks are in [FINAL_ALPHA_VERIFICATION.md](FINAL_ALPHA_VERIFICATION.md).
 
 ## How to use this matrix
 
@@ -20,7 +22,7 @@ Verification levels used here:
 | unit | A deterministic runtime/state or scheduling property can be observed without a live external product boundary. |
 | contract | A public tool, schema, error, snapshot, CLI, or read-only behavior is the boundary under test. |
 | integration | The runtime is exercised with the Codex adapter, host bridge, or multiple product surfaces. |
-| installed end-to-end | The packaged Windows product is installed and exercised through its supported user-facing flow. |
+| installed end-to-end | The packaged native product is installed and exercised through its supported user-facing flow. |
 | manual Desktop acceptance | A real Desktop host action or conversation-native Desktop behavior must be observed by an operator. |
 
 Approved clarifications are applied throughout the rows: effective host capabilities are the configured ceiling intersected with host-reported availability, and a missing host report means none; an agent in no_disposition is woken by an accepted direct-parent or host message with exactly one continuation and there is no resume tool; and the default managed policy is workspace-only writable access, network disabled, Banana tools plus currently normal sandboxed Codex coding tools, with native delegation and Computer Use unavailable and no extra MCP/app tools unless explicitly allowlisted. Omitted child objects or fields inherit, empty allowlists mean none, and explicit child values only narrow authority.
@@ -78,7 +80,7 @@ Approved clarifications are applied throughout the rows: effective host capabili
 | A-28.9 | Conversation-native and CLI visibility. | Poll shows capacity, attention, tree, task labels, dependencies, and events; inspect and paginated transcript are read-only; CLI watch, inspect, and transcript expose semantically consistent state without a dashboard. | integration | I-24.22, I-24.30, F-29.14-F-29.15, E-29.18 |
 | A-28.10 | Direct Computer Use request. | A descendant request becomes host-visible after its turn closes; the parent receives awareness only; the requester waits without a slot; the host claims before acting, performs or declines under normal approvals, resolves correlatively, serializes actions, consumes no Banana slot, and exposes uncertain after restart without replay. | manual Desktop acceptance | I-24.17, I-24.25-I-24.29, I-24.31, F-29.06, F-29.12, E-29.18 |
 | A-28.11 | Honest result and completion state. | Results move only through direct-parent decisions; root finish is blocked by unresolved obligations; final output separates mechanical completion from the root judgment and retains accepted evidence. | integration | I-24.12-I-24.18, I-24.24, F-29.07, F-29.15, E-29.18 |
-| A-28.12 | Installed Windows product and state ownership. | On Windows 11 x64, the installed plugin/skill launches or reconnects one local runtime, supports start/poll and the host loop, exposes read-only CLI views, rejects a second runtime clearly, and preserves sole runtime writing of private durable state. | installed end-to-end | I-24.21, I-24.30, I-24.32, F-29.14, F-29.17, E-29.18 |
+| A-28.12 | Installed Windows and macOS product and state ownership. | On Windows 11 x64 or macOS, the installed plugin/skill launches or reconnects one local runtime, supports start/poll and the host loop, exposes read-only CLI views, rejects a second runtime clearly, and preserves sole runtime writing of private durable state. | installed end-to-end | I-24.21, I-24.30, I-24.32, F-29.14, F-29.17, E-29.18 |
 
 ## Focused verification expectations - Section 29
 
@@ -102,11 +104,13 @@ These rows correspond one-for-one with the 17 bullets under Focused automated ve
 | F-29.14 | Poll, inspect, transcript pagination, and Desktop/CLI state consistency. | Poll, inspect, transcript pages, and CLI read-only views expose the same stable IDs and semantically consistent state; transcript paging is bounded and inspection does not resume or mutate an agent. | contract | I-24.22, I-24.30, A-28.9, A-28.12 |
 | F-29.15 | Normative tool schemas, stable errors, final workflow response, and read-only CLI enforcement. | Valid and invalid calls match required fields and error codes; terminal response contains the required mechanical/result/evidence distinctions; CLI cannot start, send, control, approve, or answer host requests. | contract | I-24.13, I-24.16, I-24.24, I-24.30, A-28.9, A-28.11 |
 | F-29.16 | Startup failure when the installed App Server lacks a normal-path capability. | Startup probes a required capability and fails clearly before normal operation when that capability is unavailable; it does not silently degrade the contract. | integration | I-24.07, I-24.20, A-28.6, A-28.12 |
-| F-29.17 | Single-runtime and single-writer enforcement on Windows 11 x64. | The installed Windows product rejects a second concurrent runtime for the user and prevents host/CLI from becoming durable-state writers; retained state remains owned by one runtime. | installed end-to-end | I-24.21, I-24.32, A-28.12 |
-| E-29.18 | One installed end-to-end acceptance test combining the central claims. | From a Windows Desktop host, an installed product creates more than 16 agents over time, stays within capacity, uses fresh and inherited context, completes advisor and direct real Computer Use flows, revises through parent review, remains visible from Desktop and CLI, and survives ordinary restart without losing identity or accepted evidence. | manual Desktop acceptance | A-28.1, A-28.3, A-28.5, A-28.7, A-28.9-A-28.12, F-29.02-F-29.17 |
+| F-29.17 | Single-runtime and single-writer enforcement on Windows 11 x64 and macOS. | The installed native product rejects a second concurrent runtime for the user and prevents host/CLI from becoming durable-state writers; retained state remains owned by one runtime. | installed end-to-end | I-24.21, I-24.32, A-28.12 |
+| E-29.18 | One installed end-to-end acceptance test combining the central claims. | From a Windows or macOS Desktop host, an installed product creates more than 16 agents over time, stays within capacity, uses fresh and inherited context, completes advisor and direct real Computer Use flows, revises through parent review, remains visible from Desktop and CLI, and survives ordinary restart without losing identity or accepted evidence. | manual Desktop acceptance | A-28.1, A-28.3, A-28.5, A-28.7, A-28.9-A-28.12, F-29.02-F-29.17 |
 
 ## Coverage notes
 
 - The Section 29 opening list of product contents and verification artifacts is exercised by the focused rows and the combined installed acceptance row; it is not a second set of focused requirements.
 - The Section 29 instruction to avoid exhaustive permutation, fault-injection, and hypothetical-platform testing is a proportionality constraint on the test plan, not an additional pass/fail feature row.
 - A row is passing only when its observable condition is demonstrated at the listed minimum level. Cross-referenced higher-level scenarios may provide additional confidence but do not change the source requirement.
+
+The continuing cheap-workflow test log, including installed versions, observed failures, fixes, and retained evidence, is in [ITERATION_LOOP_VERIFICATION.md](ITERATION_LOOP_VERIFICATION.md). Passing runs there establish only the behaviors they actually exercised.

@@ -4,9 +4,11 @@
 
 Status: normative V1 build specification
 
-Product version: 1
+Design generation: V1
 
-Specification revision: 2
+Release version: 0.1.0 (internal alpha); see the repository README for release milestones. Plugin identifiers and schema versions remain independent of release numbering.
+
+Specification revision: 4
 
 Delivery contract: one feature-complete, production-quality implementation
 
@@ -26,16 +28,16 @@ V1 has no MVP subset or acceptable partial-delivery milestone. It is complete on
 - Lean means the implementation uses the smallest clear state model and the fewest abstractions and branches that satisfy this specification.
 - Feature completeness does not imply broad hardening. V1 supports the stated flows and critical safety boundaries, not every hypothetical input, race, platform variation, or recovery strategy.
 
-The intended V1 operating envelope is one trusted local Windows user, one main Codex host task, one local Banana runtime, one workspace per workflow, multiple workflows in that runtime, and the current Codex installation on the build and test machine. Hostile multi-tenancy, distributed runtime coordination, high availability, rolling upgrades, legacy compatibility, automated schema migration across released versions, and exhaustive malformed-input recovery are outside V1.
+The intended V1 operating envelope is one trusted local Windows or macOS user, one main Codex host task, one local Banana runtime, one workspace per workflow, multiple workflows in that runtime, and the current Codex installation on the build and test machine. Hostile multi-tenancy, distributed runtime coordination, high availability, rolling upgrades, legacy compatibility, automated schema migration across released versions, and exhaustive malformed-input recovery are outside V1.
 
 Within that envelope, failures must be honest and leave inspectable state. Outside it, a concise actionable error or safe stop is preferred to automatic repair, fallback, retry, or speculative edge-case machinery. Broad hardening begins only after explicit owner direction informed by real use.
 
 ### 1.1 Supported product shape
 
-V1 supports Windows 11 x64. The installed product contains:
+V1 supports Windows 11 x64 and macOS on Apple Silicon and Intel. The installed product contains:
 
 - A locally installable personal Codex plugin and host skill used from the main Codex task
-- A bundled self-contained Windows x64 Banana runtime and Codex App Server adapter
+- A bundled self-contained runtime for the target platform and Codex App Server adapter
 - The agent and host tool surfaces defined in sections 20 and 21
 - One private durable-data directory and one startup configuration file
 - Read-only `watch`, `inspect`, and `transcript` CLI commands
@@ -76,6 +78,8 @@ The runtime exists to make model-designed workflows mechanically dependable:
 Banana Split provides mechanisms that agents cannot reliably invent through prose: thread creation, scheduling, queueing, context provenance, message delivery, dependency tracking, permission enforcement, interruption, and recovery.
 
 It does not encode organizational advice as runtime law. Decomposition, phase design, role names, review criteria, and task-specific stop conditions belong to agent judgment and prompts.
+
+Skills, tool descriptions, and managed-agent instructions explain Banana Split's coordination contract and its supported native integration. Task-specific procedures, tool preferences, and test conditions belong in assignments or test fixtures; they must not become shipped product instructions. A test failure justifies a product instruction change only when it reveals a Banana Split contract that needs clarification.
 
 ### 3.2 Recursive intelligence, not a worker swarm
 
@@ -235,7 +239,7 @@ flowchart LR
     H <-. "advertised host capability" .-> U["Optional Desktop Computer Use"]
 ```
 
-The implementation language, storage technology, and internal process topology are intentionally unspecified. Choose the smallest reliable packaged runtime that fits Windows 11 x64. One process per agent is not a product requirement.
+The implementation language, storage technology, and internal process topology are intentionally unspecified. Choose the smallest reliable packaged runtime that fits Windows 11 x64 and macOS. One process per agent is not a product requirement.
 
 ## 6. Core concepts
 
@@ -253,7 +257,7 @@ One in-flight dispatched Codex generation, including time paused for a Codex app
 
 ### Preset
 
-A named immutable model configuration resolved from the workflow's configuration snapshot. Presets contain no behavioral instructions.
+A named model configuration resolved from the workflow's active tier. The host alone can change tiers or preset definitions; running turns retain their resolved configuration. Presets contain no behavioral instructions.
 
 ### Brief
 
@@ -319,10 +323,12 @@ A non-root agent may not submit while it has unfinished or unreviewed descendant
 
 `banana_wait`, `banana_ask`, `banana_request_host`, and `banana_finish` are turn-closing tools. A successful call persists exactly one pending disposition and marks the active turn `turn_closing`; the agent remains publicly `active` and keeps its lease until Codex reports that the turn completed.
 
+Agents continue useful independent work before closing a turn. `banana_wait` returns immediately and is used only for a real dependency. Every successful closing response includes an explicit instruction to end the response immediately without further tool calls. Ending the response releases capacity and lets the runtime resume the agent in a new turn when needed.
+
 While `turn_closing`:
 
 - Further state-mutating Banana calls from that turn fail with `turn_closing`.
-- The agent is not an eligible new ordinary-message or advice target.
+- The agent may buffer ordinary messages and receive new advice requests while closing into `wait`, `ask`, or `request_host`. It rejects both while closing into `finish` or cancelling.
 - Already-owned events may be buffered, and explicit cancellation may override the disposition.
 - The closing effect is not delivered externally until successful turn completion. If the containing turn fails or is interrupted, the disposition does not execute: an armed request becomes terminal `cancelled` with code `containing_turn_not_completed`, and an armed finish result is retained only as uncommitted diagnostic evidence. Normal failure or cancellation behavior then applies.
 
@@ -331,7 +337,7 @@ At successful completion, the runtime commits the disposition atomically:
 - `wait` enters `waiting`, or `queued` when a declared dependency is already satisfied.
 - `ask` delivers the correlated request and enters `waiting`.
 - `request_host` exposes the request to the host and enters `waiting`.
-- `finish` rechecks completion guards, then submits or completes. If a newly recorded blocker exists, the finish is not committed; the agent is queued with `finish_deferred` and the blocker details.
+- `finish` rechecks completion guards and accepted mailbox inputs, then submits or completes. If a blocker or an input not yet assigned to a turn exists, the finish is not committed. The agent receives those inputs and a `finish_deferred` notice, including blocker details and `pending_input_ids`, in a continuation before deciding its result again. The notice is recorded before queuing that continuation so it cannot itself cause another deferral.
 
 Non-closing tools commit when their successful tool response is persisted. Their effects are not rolled back if the containing turn later fails.
 
@@ -387,7 +393,7 @@ The workflow root always starts in a fresh Codex thread through `thread/start`. 
 
 Before allocating a workflow, the runtime validates startup configuration, workspace, root preset, configured permission ceiling, required App Server capabilities, and tool isolation. Rejection creates no workflow. After a workflow ID is durably allocated, root thread or first-dispatch failure marks the root and workflow `failed` with terminal facts.
 
-The root records `fresh` provenance with no parent. Its initial bootstrap contains the workflow and agent IDs, task, workspace, resolved root preset, available preset catalog and owner-authored recommendation notes, effective permissions, advertised host capabilities, runtime active-turn limit, and stable Banana instructions.
+The root records `fresh` provenance with no parent. Its initial bootstrap contains the workflow and agent IDs, task, optional structured workflow details, workspace, resolved root preset, available preset catalog and owner-authored recommendation notes, effective permissions, advertised host capabilities, runtime active-turn limit, and stable Banana instructions.
 
 Conceptually, child creation accepts:
 
@@ -439,9 +445,11 @@ The runtime may recommend fields such as summary, decisions, constraints, artifa
 
 ### Managed-turn bootstrap and deltas
 
-Every child initial turn receives stable Banana instructions, its workflow/agent/parent IDs, task and brief, exact workspace/current working directory, its resolved preset, the available preset catalog and recommendation notes, effective permissions, advertised host capabilities, and the agent tool surface. An inherited child receives the same explicit child identity after the fork so parent identity in copied history cannot govern the new thread.
+After root or fresh-child creation and after inherited-child forking, the runtime sets the App Server thread name to `<workspace basename>: <task label> [<agent short ID>]` before dispatch. Task labels collapse whitespace and use the existing 96-character bound. Names do not imply Desktop project association or listing visibility.
 
-Every resumed turn receives a compact mechanical delta: current own state, direct-child states, unresolved obligations, and the newly assigned ordered inputs such as messages, advice events, host responses, submissions, review feedback, failures, and cancellation facts. Banana does not generate narrative task summaries; tasks and briefs remain author-authored.
+Every child initial turn receives stable Banana instructions, its workflow/agent/parent IDs, task, optional child details and brief, exact workspace/current working directory, its resolved preset, the available preset catalog and recommendation notes, effective permissions, advertised host capabilities, and the agent tool surface. An inherited child receives the same explicit child identity after the fork so parent identity in copied history cannot govern the new thread.
+
+Every resumed turn receives a compact mechanical delta: current own state, direct-child states, unresolved obligations, and the newly assigned ordered inputs such as messages, advice events, host responses, submissions, review feedback, failures, and cancellation facts. Banana does not generate narrative task summaries; tasks, details, and briefs remain author-authored. Workflow-start details are delivered unchanged to the root, and spawn details are delivered unchanged to the assigned child. Fresh children do not automatically receive workflow details.
 
 ### Shared workspace
 
@@ -456,20 +464,19 @@ A preset represents a reusable compute configuration:
 ```json
 {
   "model": "gpt-5.6-luna",
-  "reasoning_effort": "xhigh",
-  "service_tier": "fast"
+  "reasoning_effort": "xhigh"
 }
 ```
 
-V1 ships with the four owner-defined presets and recommendations in section 19. The owner may replace or extend that configuration without code changes. The runtime exposes the notes to agents but does not infer additional task-to-model policy.
+V1 ships with `cost-optimized`, `default`, and `performance-optimized` tiers of four presets and the owner-defined recommendations in section 19. The tier catalogs share neutral preset names so assignments remain meaningful across model changes. The host may replace tier definitions without code changes. The runtime exposes the notes to agents but does not infer additional task-to-model policy.
 
 Preset rules:
 
 - Presets contain no instructions, personalities, role descriptions, or spawn permissions.
-- A child names a preset or inherits its parent's resolved preset.
+- A child names a preset or inherits its parent's preset name, resolved within the active tier.
 - The workflow root names a preset or uses the configured default.
-- The configuration is resolved into an immutable workflow snapshot at start.
-- One-workflow overrides may add or replace whole named preset entries at workflow start; field-by-field merge is not supported.
+- The configuration is snapshotted at workflow start. Only the host may change the active tier or preset definitions afterward.
+- Tiered workflows may replace the full three-tier catalog at start or through the host tier tool. Flat legacy workflow overrides may add or replace whole named preset entries at start; field-by-field merge is not supported.
 - Every preset in the resolved workflow catalog is validated against App Server model capabilities at workflow start.
 - Unsupported models, effort levels, or explicitly requested service tiers fail explicitly.
 - Provider fallback is not silently enabled for an explicit preset.
@@ -502,7 +509,7 @@ Core addressing supports the parent alias and explicit agent IDs within the same
 
 The runtime assigns a recipient-local monotonic sequence when it accepts a message. Timestamps are informational and never determine order. A safe turn boundary is the point before `turn/start` at which Banana constructs the next managed-turn input. All pending inputs assigned at that boundary are consumed by that turn at most once; later inputs remain pending for a later continuation. `turn/steer` may reduce latency but is never required for correctness.
 
-`pending_context`, `queued`, `active`, and `waiting` agents that are not `turn_closing` may receive ordinary messages. An active or queued recipient buffers the message without gaining another runnable entry. A waiting recipient queues when its wait includes ordinary messages. `submitted`, terminal, and `turn_closing` recipients reject the send with `recipient_unavailable`; accepted messages are therefore never stranded behind an agent that cannot run.
+`pending_context`, `queued`, `active`, and `waiting` agents may receive ordinary messages, including while closing into `wait`, `ask`, or `request_host`. Active and queued recipients buffer the message without gaining another runnable entry. A message arriving during turn closure is assigned on the next eligible turn. Ordinary messages do not resolve advice or host dependencies. A waiting recipient queues when its wait includes ordinary messages. Recipients closing into `finish`, submitted or terminal recipients, and agents with cancellation requested reject sends with `recipient_unavailable`. Both agent and host sends use this rule.
 
 ## 12. Correlated advice and host requests
 
@@ -522,7 +529,7 @@ banana_ask(
 
 Semantics:
 
-1. The advisor must be a different `queued`, `active`, or `waiting` agent in the same workflow and must not be `turn_closing`.
+1. The advisor must be a different `queued`, `active`, or `waiting` agent in the same workflow and must not be cancelling or closing with `finish`. An advisor closing into `wait`, `ask`, or `request_host` remains eligible: delivery is buffered for its next turn, just like ordinary messages.
 2. Validation failure creates no request. Success allocates an opaque request ID and arms the request-and-wait disposition defined in section 7.1; delivery and waiting commit together when the requester turn completes.
 3. A waiting advisor becomes runnable. An active or already queued advisor receives the request at its next safe turn boundary and never gains an overlapping turn.
 4. Only the designated advisor may answer or decline through `banana_reply`. Either resolution queues the requester with the correlated response unless it is already active or queued.
@@ -554,15 +561,15 @@ Semantics:
 1. Effective host capabilities are the configured startup ceiling intersected with availability reported by the installed Desktop host at workflow start, and that result is snapshotted immutably. A missing host availability report means no host capabilities are available. If Computer Use is unavailable from either source, computer_use is not advertised.
 2. Any active agent may request an advertised host capability directly. The request does not bubble through the agent tree. Its direct parent receives a material notification for awareness but gains neither response authority nor an obligation to relay it.
 3. One operation allocates the request and arms the request-and-wait disposition from section 7.1. The host sees it only after the requester turn completes successfully.
-4. A committed request enters `pending`. `banana_workflow_poll` exposes the oldest pending Computer Use request as `host_action_required`; polling observes it but does not claim it.
-5. Before acting, the host calls `banana_host_respond(status: in_progress)`. This durably claims the request. Only one Computer Use request across the runtime may be `in_progress`; other requests remain pending in order.
+4. A committed request enters `pending` and receives a durable runtime-wide sequence. Pending-entry sequence determines queue order across workflows; arm-time timestamps do not. `banana_workflow_poll` exposes the oldest pending Computer Use request as `host_action_required`; polling observes it but does not claim it.
+5. Before acting, the host calls `banana_host_respond(status: in_progress)`. This durably claims the request. Only one Computer Use request across the runtime may be `in_progress`; other requests remain pending in order. An `uncertain` action retains that reservation until the host resolves it, including after requester cancellation or runtime recovery.
 6. The host later records `completed`, `declined`, or `failed`, normally with evidence. These terminal states resume a live requester. `cancelled` is terminal without a host response. If runtime continuity is lost while an action is `in_progress`, recovery changes it to `uncertain`; it is never actionable or repeated automatically and requires an explicit terminal host response.
 7. The Desktop host's normal permissions and approvals apply. The request is not preauthorization, Banana does not operate Computer Use, and host execution consumes no Banana active-turn slot.
 8. An unadvertised capability fails immediately without arming a wait. Capability loss before claim fails a pending request. V1 has no host rebinding, CLI-to-Desktop handoff, or general capability marketplace.
 
 The parent visibility notification contains request ID, requester ID, capability, and the exact task text; the full context and expected-evidence payload remain available through host inspection. The packet should bound the action with objective, relevant app or starting state, allowed scope, stop or approval conditions, and desired evidence when those details matter. Those fields remain agent-authored payload rather than a domain-specific runtime schema.
 
-Request resolution and host-action execution are recorded separately. A live requester remains waiting while execution is `uncertain`. If cancellation has already resolved the request as `cancelled`, a later host response may append action evidence but cannot resume the requester or change that cancelled resolution.
+Request resolution and host-action execution are recorded separately. A live requester remains waiting while execution is `uncertain`. If cancellation has already resolved the request as `cancelled`, a later host response may resolve its still-uncertain action with evidence but cannot resume the requester or change that cancelled resolution. An unclaimed cancelled action and an already settled action reject later responses.
 
 ## 13. Parent-child submission and review
 
@@ -650,15 +657,15 @@ The terminal workflow response contains:
 
 The user-owned Banana startup configuration is the authoritative permission ceiling for managed agents. The runtime validates that ceiling against the current App Server and any administrator-enforced requirements. Workflow-start arguments may select the configured ceiling or narrow it; they cannot widen it. Omitted permission objects and fields inherit the direct parent's effective value. Empty allowlists mean none, and every explicit workflow, root, or child value may only narrow the inherited authority; widening is rejected rather than clamped.
 
-The shipped managed-agent default makes only the workflow workspace writable and disables network access. Managed threads receive the Banana agent tools plus the current normal sandboxed Codex coding tools. Native Codex delegation and direct Computer Use are unavailable, and no additional MCP server, app, or app-provided tool is available unless the startup ceiling explicitly allowlists it.
+The shipped managed-agent default makes only the workflow workspace writable and disables network access. Native implicit write access to `/tmp` and the system temporary directory is disabled; temporary files must stay within the configured writable roots. Managed threads receive the Banana agent tools plus the current normal sandboxed Codex coding tools. Native Codex delegation and direct Computer Use are unavailable, and apps remain disabled. The shipped startup ceiling explicitly selects workspace MCP resolution: enabled servers declared in trusted Codex project configuration layers for the exact workspace become the workflow’s snapshotted MCP ceiling, excluding Banana host servers. Explicit startup arrays remain fixed allowlists; omission or an empty array allows none.
 
 At minimum, the runtime handles these axes separately:
 
 - Filesystem and sandbox access, using the current App Server's native modes without increasing access
-- Writable roots, canonicalized as absolute Windows paths; each child root must equal or remain beneath an effective parent root
+- Writable roots, resolved through existing directory aliases to absolute native platform paths (using the nearest existing ancestor for new directories); each child root must equal or remain beneath an effective parent root. Narrowing cannot select the parent's native protected `.git`, `.agents`, or `.codex` directory or its descendants as a new writable root.
 - Network access, where disabled is narrower than enabled
 - Approval policy and approval reviewer routing, which come from the configured ceiling and are not child-overridable
-- Tool and MCP allowlists, where the child set must be a subset of the parent set
+- Tool and MCP allowlists, where the child set must be a subset of the parent set. MCP names are validated against the effective Codex configuration for the workflow workspace before thread creation, fork, or resume. Isolation includes project configuration layers; a server outside the selected allowlist stays disabled even when a project config enables it.
 
 The runtime must never infer permissions broader than the startup configuration. Missing or invalid permission configuration fails startup clearly.
 
@@ -670,7 +677,7 @@ Every managed thread receives the Banana agent tools and only those additional C
 
 The runtime binds each agent-tool call to the managed thread's runtime identity; a caller cannot choose another agent identity. Host calls use the separate trusted host connection. No hostile-user authentication system is required inside the single-user local envelope.
 
-Approval requests pause the affected turn as required by Codex and are relayed to the host. App Server remains authoritative for the approval itself. Banana durably records only `approval_id`, workflow/agent/thread/turn correlation, a display summary, compact request and response-contract facts needed for an explicit host decision, and `pending | answered | invalidated` relay status. It does not persist an arbitrary full protocol request. Only a pending approval may be answered; cancellation invalidates it, and duplicate or late responses fail with `approval_not_pending`. Banana Split never answers a user approval through model inference.
+Approval requests pause the affected turn as required by Codex and are relayed to the host. App Server remains authoritative for the approval itself. Banana durably records only `approval_id`, workflow/agent/thread/turn correlation, a display summary, compact request and response-contract facts needed for an explicit host decision, and `pending | answered | invalidated` relay status. It does not persist an arbitrary full protocol request. Only a pending approval may be answered; cancellation immediately invalidates it. Requests arriving while cancellation settles or after the agent becomes terminal are recorded as invalidated and receive a method-appropriate native rejection, and duplicate or late responses fail with `approval_not_pending`. Banana Split never answers a user approval through model inference.
 
 The Desktop host's own permissions are separate from the managed-agent ceiling. They govern Computer Use and other host-side actions at the moment the host performs them. The startup configuration decides whether the Computer Use request bridge is advertised, but advertisement is not preauthorization: the host may still decline or fail a request, and completing it never grants Computer Use or new authority to the requesting agent.
 
@@ -698,7 +705,7 @@ It does not duplicate Codex thread transcripts.
 
 Tasks, briefs, mailboxes, host-capability requests and evidence, submissions, and results can still contain sensitive material. The store is private to the local user. Poll snapshots omit raw payloads; explicit inspect and transcript operations may reveal them.
 
-An ordinary V1 restart means the same Windows user and machine, Banana data directory, workspace paths, Codex home/authentication, a normally functioning current App Server with the required capabilities, retained non-ephemeral threads, and main host task. Host-task replacement and workflow migration are outside V1.
+An ordinary V1 restart means the same operating-system user and machine, Banana data directory, workspace paths, Codex home/authentication, a normally functioning current App Server with the required capabilities, retained non-ephemeral threads, and main host task. Host-task replacement and workflow migration are outside V1.
 
 Recovery contract:
 
@@ -731,6 +738,8 @@ Spawn freeze is durable and per workflow. While frozen, every new child-creation
 
 Cancellation is separate. `pending_context`, `queued`, `waiting`, and `submitted` agents in the target subtree become cancelled immediately. Active agents receive interruption requests, retain their leases and public active state until interruption is acknowledged, then become cancelled. Workflow cancellation enters `cancelling` and reaches `cancelled` only after every active lease settles. The control call returns the current snapshot immediately; polling later returns the terminal snapshot.
 
+A failed turn-start RPC can leave native execution uncertain even when cancellation was requested. That agent retains an inspectable failure and its cancellation intent rather than claiming confirmed interruption; the workflow's cancellation status does not erase those individual failure facts.
+
 Cancellation closes requests by one uniform rule: if either advisor or requester is cancelled, the advice request becomes cancelled and any surviving counterpart receives a structured cancellation input. A pending host request from a cancelled requester is cancelled. An `in_progress` host action becomes `uncertain`; it is not repeated, and later host evidence is retained even though the requester will not resume. Pending approvals are invalidated. Existing accepted results and unaccepted submissions remain inspectable.
 
 Cancellation returns a final partial snapshot containing:
@@ -762,6 +771,10 @@ Required conceptual capabilities include:
 
 Optional capabilities such as `turn/steer` may improve latency but are never correctness requirements.
 
+After naming a new or forked managed thread, the adapter reads its full history before making the agent runnable. On the tested App Server, that ordered read materializes an empty queued thread; reading before naming can hit an uninitialized history store. The adapter retains the native default history mode, which preserves dynamic tool calls in transcript inspection. Banana does not create a synthetic model turn to save a queued thread.
+
+Managed threads disable native goals as well as native delegation. Native goal continuations can start turns independently, which would bypass Banana's active-turn scheduler. The main host's goal tools remain outside this managed-thread isolation.
+
 V1 builds and runs against the Codex version currently installed on the implementation and test machine. It does not pin, bundle, or branch on an exact Codex version. Startup probes only the capabilities required by the normal product path and fails actionably when one is unavailable. Do not build a compatibility matrix, version-specific adapters, migration layer, or speculative handling for future Codex changes. Unknown nonmaterial fields may be ignored; an unknown event that prevents safe state tracking is surfaced and stops the affected work.
 
 Codex App Server documents `thread/fork` as copying stored history into a new thread and supports an explicit `lastTurnId`; this is the basis for true inherited context. It also exposes model discovery and per-thread or per-turn model, reasoning, and service-tier settings. Catalog validation is not proof that a provider dispatch will succeed, so actual dispatch failure remains visible and never triggers silent fallback.
@@ -776,7 +789,7 @@ Official references:
 
 ## 19. Configuration
 
-V1 uses small runtime-startup configuration plus an immutable per-workflow preset snapshot.
+V1 uses small runtime-startup configuration plus a per-workflow preset tier catalog controlled by the host.
 
 Shipped V1 defaults:
 
@@ -799,37 +812,36 @@ Shipped V1 defaults:
     }
   },
   "workflow_defaults": {
-    "default_preset": "sol-high",
+    "default_preset": "default-judgment",
     "presets": {
-      "sol-xhigh": {
-        "model": "gpt-5.6-sol",
-        "reasoning_effort": "xhigh"
-      },
-      "sol-high": {
-        "model": "gpt-5.6-sol",
+      "complex-judgment": {
+        "model": "gpt-6-astra",
         "reasoning_effort": "high"
       },
-      "sol-medium": {
-        "model": "gpt-5.6-sol",
+      "default-judgment": {
+        "model": "gpt-6-astra",
         "reasoning_effort": "medium"
       },
-      "luna-fast-xhigh": {
-        "model": "gpt-5.6-luna",
-        "reasoning_effort": "xhigh",
-        "service_tier": "fast"
+      "general-workhorse": {
+        "model": "gpt-6-sol",
+        "reasoning_effort": "high"
+      },
+      "defined-workhorse": {
+        "model": "gpt-6-sol",
+        "reasoning_effort": "high"
       }
     },
     "preset_recommendations": {
-      "sol-xhigh": {
+      "complex-judgment": {
         "recommended_for": "Truly complex work, especially work requiring significant judgment that is not being handled by the user"
       },
-      "sol-high": {
+      "default-judgment": {
         "recommended_for": "Default for judgment calls, advisor work, and complex work"
       },
-      "sol-medium": {
+      "general-workhorse": {
         "recommended_for": "Less-defined workhorse work, including complex or critical tasks"
       },
-      "luna-fast-xhigh": {
+      "defined-workhorse": {
         "recommended_for": "Well-defined workhorse tasks, low-cost bulk work, or implementation paired with a Sol advisor"
       }
     }
@@ -837,7 +849,7 @@ Shipped V1 defaults:
 }
 ```
 
-These are shipped owner recommendations, not runtime roles or enforced routing. Sol presets omit a service tier and therefore use the current Codex default; Luna explicitly requests fast mode. The owner may edit the catalog and notes without changing code. Omitted optional permission and allowlist fields resolve under the default and inheritance rules in section 15; omission never means unrestricted authority.
+These are shipped owner recommendations, not runtime roles or enforced routing. Shipped presets omit a service tier and therefore use the current Codex default. The owner may edit the catalog and notes without changing code. Omitted optional permission and allowlist fields resolve under the default and inheritance rules in section 15; omission never means unrestricted authority.
 
 Configuration principles:
 
@@ -850,18 +862,21 @@ Configuration principles:
 - No file watcher
 - No live merge-patch API
 - No optimistic configuration concurrency protocol
-- No mutation of an active workflow's resolved snapshot
+- Running turns retain their resolved routing; only the host can change routing for future turns
 - Explicit one-workflow preset overrides allowed at start
 - Exact resolved snapshot retained for audit and recovery
-- Workspace, effective permission ceiling, host-capability advertisement, presets, and recommendation notes are immutable workflow-start snapshots
+- Workspace, effective permission ceiling, host-capability advertisement, and recommendation notes are immutable workflow-start snapshots; preset tiers may be changed only by the host
 
-All configuration is loaded once at runtime startup. Scheduler settings, presets, and recommendation notes require a runtime restart to change. Workflow-start preset overrides replace whole named entries, may add names, and are validated with the final snapshot. Unsupported configuration versions fail startup. There is no configuration file watcher; CLI `watch` observes runtime state through the owner and is unrelated to configuration reload.
+All configuration is loaded once at runtime startup. Scheduler settings and configured defaults require a runtime restart to change; host tier changes affect only the selected workflow. Flat legacy workflow-start preset overrides replace whole named entries, may add names, and are validated with the final snapshot. Tiered workflows share four stable preset names across three tiers. Unsupported configuration versions fail startup. There is no configuration file watcher; CLI `watch` observes runtime state through the owner and is unrelated to configuration reload.
 
 ## 20. Minimal agent tool surface
 
 The tool names, input fields, response fields, lifecycle effects, and error codes in sections 20 and 21 are normative external contracts. Implementation modules do not need to map one-to-one to tools.
 
 Common wire rules:
+
+- Managed App Server dynamic tools return JSON text in `contentItems`, not a structured object. JavaScript callers parse the text and check `ok` before accessing fields. Host MCP responses also expose `structuredContent`; this is a separate transport.
+- Successful managed tool results include `turn_closing` and a next-action instruction. Non-closing tools return `false` and leave the turn open; closing tools return `true` and require the agent's next message to be its final response.
 
 - Durable IDs and cursors are nonempty opaque strings. Each agent also has a stored short ID unique within its workflow; callers may use either exact form, and ambiguous short IDs fail.
 - Timestamps use UTC RFC 3339 and are informational. Recipient input sequence and workflow event order, not timestamps, determine behavior.
@@ -873,13 +888,26 @@ Common wire rules:
 
 The stable V1 error and attention codes are: `invalid_input`, `not_found`, `invalid_state`, `recipient_unavailable`, `request_terminal`, `turn_closing`, `containing_turn_not_completed`, `finish_deferred`, `no_disposition`, `spawn_frozen`, `permission_widening`, `preset_unavailable`, `capability_unavailable`, `approval_not_pending`, `app_server_unsupported`, `persistence_failed`, `reconciliation_required`, and `runtime_unavailable`.
 
+When a child's work is the only remaining dependency, the managed JavaScript sequence is:
+
+```javascript
+const child = JSON.parse(await tools.banana_spawn({
+  task: "Review the changes", context: { source: "inherit" }
+}));
+if (!child.ok) throw new Error(JSON.stringify(child.error));
+const waiting = JSON.parse(await tools.banana_wait({ children: [child.agent_id] }));
+if (!waiting.ok) throw new Error(JSON.stringify(waiting.error));
+```
+
+After that successful wait, end the response immediately. The runtime starts a new turn when the dependency resolves.
+
 ### `banana_spawn`
 
 ```text
 banana_spawn(task, context: {source: fresh | inherit, brief?}, preset?, permissions?, details?)
 ```
 
-Create a direct child. Return `agent_id`, `short_id`, `context_state`, `thread_boundary?`, `requested_preset`, `resolved_preset`, `admission_state: pending_context | queued | active`, `active_turns`, `max_active_turns`, and `should_yield`. Validation rejection creates no child; a failure after durable child allocation leaves that child `failed` with terminal facts.
+Create a direct child. Return `agent_id`, `short_id`, `context_state`, `thread_boundary?`, `requested_preset`, `resolved_preset`, `admission_state: pending_context | queued | active`, `capacity_scope: runtime`, `active_turns`, `max_active_turns`, and `should_yield`. Validation rejection creates no child; a failure after durable child allocation leaves that child `failed` with terminal facts.
 
 ### `banana_send`
 
@@ -903,7 +931,7 @@ Arm an atomic correlated guidance request and wait. Return `request_id` and `tur
 banana_reply(request_id, status: answered | declined, guidance?, details?)
 ```
 
-Resolve a request addressed to the current agent. `guidance` is required for `answered` and omitted for `declined`. Return the terminal request status and requester ID.
+Resolve a request addressed to the current agent. `guidance` is required for `answered` and omitted for `declined`. Return the terminal request status and requester ID. The delivered response keeps runtime `request_id` and `status` separate from caller metadata, which is retained under `reply_details`.
 
 ### `banana_request_host`
 
@@ -927,7 +955,7 @@ At least one dependency is required. The wait uses wake-on-any semantics. A sele
 banana_review(child_id, decision: accept | revise, feedback?: {summary, details?})
 ```
 
-Accept or revise a direct child's current submission. `feedback.summary` is required for revision. Return child state and accepted result or queued revision status.
+Accept or revise a direct child's current submission. Feedback is optional for acceptance and required for revision; when supplied, it contains a nonempty `summary` and optional object `details`. If no current submission exists, the error includes the child state, wait, pending approvals, and a recovery action. A parent may ask a child whose work is ready to call `banana_finish`; an ordinary status message is not a submission. Acceptance retains feedback in submission history and completes the child without resuming it. Revision retains and delivers feedback to the same child thread. Return child state and accepted result or queued revision status.
 
 ### `banana_cancel`
 
@@ -945,6 +973,8 @@ banana_finish(result: {outcome, summary, details?})
 
 Arm submission of a non-root result or completion of the root after every descendant, review, inbound/outbound advice, and host-request obligation is settled. Return `turn_closing: true`.
 
+If a completion guard rejects finish while accepted inputs await delivery, `error.details.next_action` directs the agent to close with `banana_wait({messages:true})`, receive those inputs, and resolve the listed obligations before finishing. Inbound advice requires `banana_reply` after the question is received.
+
 Managed threads receive this complete agent surface and no host tools.
 
 ## 21. Minimal host surface
@@ -954,10 +984,10 @@ The host skill performs the complete conversation-native loop: construct the sta
 ### `banana_workflow_start`
 
 ```text
-banana_workflow_start(task, details?, workspace, root_preset?, preset_overrides?, root_permissions?, host_capabilities?: {computer_use: boolean})
+banana_workflow_start(task, details?, workspace, root_preset?, tier?, preset_tiers?, preset_overrides?, root_permissions?, host_capabilities?: {computer_use: boolean})
 ```
 
-Start a workflow. User-owned startup configuration supplies the managed-agent permission ceiling and host-capability ceiling; model arguments may narrow permissions but cannot broaden them. host_capabilities is the main host's current availability report, not a requested grant. Its omission reports no available host capabilities. The immutable workflow advertisement is the intersection of this report and the configured ceiling. Return workflow/root IDs, resolved root preset, fresh root provenance, immutable snapshot summary, and initial workflow state.
+Start a workflow. User-owned startup configuration supplies the managed-agent permission ceiling and host-capability ceiling; model arguments may narrow permissions but cannot broaden them. host_capabilities is the main host's current availability report, not a requested grant. Its omission reports no available host capabilities. The immutable workflow advertisement is the intersection of this report and the configured ceiling. Return workflow/root IDs, resolved root preset, fresh root provenance, snapshot summary including the active tier and tier catalog, and initial workflow state.
 
 ### `banana_workflow_poll`
 
@@ -997,6 +1027,8 @@ Send new material context under the same recipient-state and ordering rules as `
 banana_workflow_control(workflow_id, action: freeze_spawning | reopen_spawning | cancel_subtree | cancel_workflow, agent_id?)
 ```
 
+`cancel_workflow` rejects terminal workflows with `invalid_state`; a late cancellation cannot replace a completed, failed, or cancelled outcome.
+
 `agent_id` is required only for `cancel_subtree`. Return the committed freeze state or current cancellation snapshot. No general workflow DSL.
 
 ### `banana_approval_respond`
@@ -1007,15 +1039,23 @@ banana_approval_respond(workflow_id, approval_id, decision, details?)
 
 Relay a trusted host/user decision to a pending Codex approval and return relay status. `decision` uses the supported App Server approval enum for command and file approvals and is passed through without model reinterpretation. Permission, user-input, and MCP elicitation attention items expose the bounded request facts and exact response contract the host needs; for those methods the host supplies the protocol response unchanged in `details.response`.
 
+Pending native approvals can survive client reconnection to a surviving App Server. If Banana launches a replacement native process during recovery, it invalidates retained pending approvals before recovering threads: their RPC request IDs belonged to the previous process. Recorded host answers remain inspectable, and old request IDs are not sent to the replacement server.
+
+Turn-scoped native requests must match the agent's open active turn. Stale or closing requests are declined without cancelling an unrelated continuation. Pending approvals expire when their native turn ends, or when App Server reports `serverRequest/resolved` for the same thread and request ID. Native resolution invalidates pending attention without inventing a host decision; an already recorded answer is preserved. MCP elicitation may have a null turn ID because the native protocol also supports standalone server requests. When the owning agent completes, fails, or is cancelled, Banana invalidates pending standalone elicitations and sends their native cancellation response; a disconnected response channel is recorded without claiming delivery. Native request resolution arriving during startup waits for turn binding before matching the pending record.
+
+For command and file approvals, `decline` rejects the operation and allows the same turn to continue. Banana exposes this protocol choice even when App Server omits it from its displayed command choices. `cancel` interrupts the requester and cancels its nonterminal descendants; the runtime records cancellation intent and settles acknowledged turns as `cancelled`, preserving accepted results. Root cancellation stays `cancelling` until every active descendant settles. App Server already interrupts the requesting turn, so Banana sends additional interrupts only to active descendants.
+
+Approval responses include the relayed protocol `response` and, for cancellation, the current `cancellation` state. The response, answer time, and optional host `details` are durable and available through `banana_agent_inspect(include_payloads: true)`. Command/file details are audit context only; they are not sent to the managed agent. Use `banana_workflow_send` to queue agent context under its existing delivery rules.
+
 ### `banana_host_respond`
 
 ```text
 banana_host_respond(workflow_id, request_id, status: in_progress | completed | declined | failed, summary?, details?)
 ```
 
-Claim or terminally resolve a host-capability request. `pending` may move to `in_progress`, `declined`, or `failed`; `in_progress` or `uncertain` may move to `completed` or `failed`. `completed` requires a summary or evidence in `details`; `declined` and `failed` require a summary. Invalid or duplicate transitions fail with `invalid_state` or `request_terminal`. A response after requester cancellation may annotate uncertain action evidence as defined in section 12 without changing request resolution. Return the durable request and action state. Only the main host may call it.
+Claim or terminally resolve a host-capability request. `pending` may move to `in_progress`, `declined`, or `failed`; `in_progress` or `uncertain` may move to `completed` or `failed`. `completed` requires a summary or evidence in `details`; `declined` and `failed` require a summary. Invalid or duplicate transitions fail with `invalid_state` or `request_terminal`. A response after requester cancellation may annotate uncertain action evidence as defined in section 12 without changing request resolution. Optional claim summary and details are retained for inspection without waking the requester; a terminal response replaces them with its final summary and evidence. Return the durable request and action state. Only the main host may call it.
 
-Configuration read/patch tools are omitted because active configuration is immutable. The standalone CLI is read-only and exposes only `watch`, `inspect`, and `transcript`; it cannot start, send, control, approve, or answer host requests.
+The host-only `banana_workflow_set_tier(workflow_id, tier, preset_tiers?)` selects a tier and optionally replaces its full catalog. Exactly three tiers must share four preset names, including the default and existing agent assignments. Validate all model/effort/tier combinations before accepting a change. New agents and existing agents' next turns use the new routing; active turns continue unchanged. Tier settings and per-turn routing history are durable, and agent inspection exposes the history. Other configuration remains fixed during the workflow. The standalone CLI is read-only and exposes only `watch`, `inspect`, and `transcript`; it cannot start, send, control, approve, or answer host requests.
 
 ## 22. Observability
 
@@ -1027,6 +1067,9 @@ Every `banana_workflow_poll` returns a compact but useful nearby view:
 - An attention-first list of approvals, failures, uncertain side effects, submissions needing review, and `host_action_required` requests
 - An indented agent tree using stable short IDs, with each agent's state, concise task label, and current wait, submission, or review dependency
 - Material events since the caller's cursor
+- Managed tool rejection counts by tool and code, cumulative turns without a disposition (retained after recovery), revision and acceptance counts, explicit queue reasons, and configured versus workflow-overridden preset catalog source
+
+Pending approvals carry a host next action to inspect the requested operation and resolve it under existing authorization before unrelated transcript inspection or status nudges. File approvals retain the native item/started proposal as request.file_changes, with native turn/item identifiers, because thread/read can omit a patch while approval is pending. This is approval evidence; Codex remains authoritative for the transcript. Pending inherited children expose their parent turn dependency. Rejected managed tool calls record bounded `tool_rejected` events with tool, error code, turn and relevant IDs; arguments and error payloads are omitted.
 
 This default is richer than a heartbeat but smaller than a transcript dump. It should answer:
 
@@ -1185,7 +1228,7 @@ A root delegates a substantial phase to a child, which creates its own investiga
 
 ### 28.3 Root and child context provenance
 
-The host skill turns the user's request into a standalone task and starts the root fresh with no implicit host-conversation inheritance. A fresh reviewer receives its task, brief, workspace, tools, preset, and permissions but no parent history. An inherited child requested during parent turn `T` waits for that turn to complete and then uses a real fork through `T`. Every initial turn receives its explicit Banana identity and bootstrap; neither a summary nor an earlier turn is presented as inherited context.
+The host skill turns the user's request into a standalone task and starts the root fresh with no implicit host-conversation inheritance. A fresh reviewer receives its task, details, brief, workspace, tools, preset, and permissions but no parent history. Its parent must explicitly include applicable user restrictions, source paths, and permitted validation commands in that assignment. An inherited child requested during parent turn `T` waits for that turn to complete and then uses a real fork through `T`. Every initial turn receives its explicit Banana identity and bootstrap; neither a summary nor an earlier turn is presented as inherited context.
 
 ### 28.4 Messaging and advice
 
@@ -1201,7 +1244,7 @@ A child sees the workflow's preset catalog and owner recommendation notes, reque
 
 ### 28.7 Ordinary restart recovery
 
-The runtime restarts while a workflow contains queued, waiting, submitted, completed, and active work. It recovers the stable workflow ID, tree, dependencies, requests, submissions, and results from the durable store and reconnects Codex-owned threads. An unambiguous active turn is reconciled; ambiguous activity is surfaced for attention and is not automatically replayed.
+The runtime restarts while a workflow contains queued, waiting, submitted, completed, and active work. It recovers the stable workflow ID, tree, dependencies, requests, submissions, and results from the durable store and reconnects idle Codex-owned threads only when an agent next needs a turn. Waiting and submitted agents do not delay startup with eager resumes; their retained records and transcripts remain inspectable. Completed, failed, and cancelled agents retain their records without thread resume. An unambiguous active turn is reconciled; ambiguous activity is surfaced for attention and is not automatically replayed.
 
 ### 28.8 Cancellation and spawn freeze
 
@@ -1219,9 +1262,9 @@ A deep descendant calls `banana_request_host(capability: computer_use, ...)`. Af
 
 Deep child results move upward only through direct-parent acceptance. The root cannot finish with unresolved descendants, reviews, advice, or host requests. The final response distinguishes mechanical completion from the root's `success`, `partial`, `blocked`, or `unsuccessful` judgment and retains useful accepted evidence.
 
-### 28.12 Installed Windows product and state ownership
+### 28.12 Installed Windows and macOS product and state ownership
 
-On Windows 11 x64, the installed plugin/skill launches or reconnects the single local runtime, starts and polls a workflow from the main Codex task, and exposes the complete host loop. The runtime is the only writer of private durable state. A second runtime start fails clearly, while read-only CLI `watch`, `inspect`, and `transcript` observe the same retained workflows without editing state.
+On Windows 11 x64 or macOS, the installed plugin/skill launches or reconnects the single local runtime, starts and polls a workflow from the main Codex task, and exposes the complete host loop. The runtime is the only writer of private durable state. A second runtime start fails clearly, while read-only CLI `watch`, `inspect`, and `transcript` observe the same retained workflows without editing state.
 
 ## 29. Verification expectations for the rebuild
 
@@ -1233,7 +1276,7 @@ V1 is delivered as one integrated product, not a collection of completed phases.
 - Desktop-cockpit output and the CLI visibility commands
 - Configuration schema, example preset configuration, and startup validation
 - Concise installation, configuration, operation, and troubleshooting documentation
-- Automated tests, a real App Server integration run, an installed plugin/skill run, a Windows CLI smoke test, and a real Desktop Computer Use acceptance run
+- Automated tests, a real App Server integration run, an installed plugin/skill run, a native-platform CLI smoke test, and a real Desktop Computer Use acceptance run
 - No production-path stubs, placeholder handlers, or mock-only integrations
 
 Focused automated verification must cover:
@@ -1254,9 +1297,9 @@ Focused automated verification must cover:
 - Poll, inspect, transcript pagination, and Desktop/CLI state consistency
 - Normative tool schemas, stable errors, final workflow response, and read-only CLI enforcement
 - Startup failure when the current installed App Server lacks a capability required by the normal product path
-- Single-runtime and single-writer enforcement on Windows 11 x64
+- Single-runtime and single-writer enforcement on Windows 11 x64 and macOS
 
-One installed end-to-end acceptance test should combine the central claims: from a Windows Desktop host, a deep workflow creates more than 16 agents over time, never exceeds active capacity, uses fresh and inherited context, asks an advisor, requests and completes real Desktop Computer Use from a descendant, revises a child through parent review, remains inspectable from Desktop and CLI, and survives an ordinary runtime restart without losing identity or accepted evidence.
+One installed end-to-end acceptance test should combine the central claims: from a Windows or macOS Desktop host, a deep workflow creates more than 16 agents over time, never exceeds active capacity, uses fresh and inherited context, asks an advisor, requests and completes real Desktop Computer Use from a descendant, revises a child through parent review, remains inspectable from Desktop and CLI, and survives an ordinary runtime restart without losing identity or accepted evidence.
 
 Verification should be proportional. Do not add exhaustive permutation tests, fault-injection frameworks, or handlers for hypothetical platform behavior unless they protect a core authority/data invariant or are required by an acceptance scenario.
 
@@ -1277,7 +1320,7 @@ The implementation agent should use this sequence to reduce integration risk whi
 6. **Durability and host lifecycle**
    - Store, recovery, discovery, rich polling, read-only agent/transcript inspection, CLI projections, Computer Use response bridge, approvals, cancellation snapshots, emergency spawn freeze.
 7. **Packaging and supported integration**
-   - Personal/local plugin distribution, self-contained Windows runtime, stateless MCP boundary over the simplest current supported transport, startup diagnostics, documentation, contract tests, and end-to-end verification.
+   - Personal/local plugin distribution, self-contained native runtime, stateless MCP boundary over the simplest current supported transport, startup diagnostics, documentation, contract tests, and end-to-end verification.
 
 At the end of each step, remove abstractions that are not needed by the complete V1 contract. The final pass installs and exercises the product as a user would; unit-level completion alone is insufficient.
 

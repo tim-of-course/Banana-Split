@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { createConnection, createServer } from "node:net";
-import { normalize, resolve } from "node:path";
+import { closeSync, constants, openSync, realpathSync, unlinkSync } from "node:fs";
+import { basename, dirname, normalize, resolve } from "node:path";
 import type { Engine } from "./engine.js";
 import type { JsonObject } from "./model.js";
 
@@ -9,6 +10,7 @@ export class RuntimeOwner {
   private readonly lockServer = createServer((socket) => socket.destroy());
   private readonly sockets = new Set<import("node:net").Socket>();
   private engine?: Engine;
+  private lockFd?: number;
   private readonly server = createServer((socket) => {
     this.sockets.add(socket);
     socket.once("close", () => this.sockets.delete(socket));
@@ -29,11 +31,23 @@ export class RuntimeOwner {
 
   async listen(): Promise<void> {
     try {
-      await listen(this.lockServer, runtimeLockAddress(this.ownerKey), "Another Banana Split runtime already owns this durable data directory");
+      const address = runtimeLockAddress(this.ownerKey);
+      if (process.platform === "darwin") {
+        // Darwin O_EXLOCK locks atomically during open. Keep this file in place:
+        // unlinking it would let a second owner lock a different inode.
+        try { this.lockFd = openSync(`${address}.lock`, constants.O_CREAT | constants.O_RDWR | constants.O_NONBLOCK | 0x20, 0o600) }
+        catch (error) {
+          if (["EAGAIN", "EWOULDBLOCK"].includes((error as NodeJS.ErrnoException).code ?? "")) throw new Error("Another Banana Split runtime already owns this durable data directory");
+          throw error;
+        }
+      }
+      if (process.platform !== "win32") await removeStaleSocket(address);
+      await listen(this.lockServer, address, "Another Banana Split runtime already owns this durable data directory");
       await listen(this.server, this.port, "A Banana Split runtime already owns 127.0.0.1:" + this.port, "127.0.0.1");
     } catch (error) {
       await closeServer(this.server);
       await closeServer(this.lockServer);
+      this.releaseFileLock();
       throw error;
     }
   }
@@ -44,6 +58,11 @@ export class RuntimeOwner {
     for (const socket of this.sockets) socket.destroy();
     await closeServer(this.server);
     await closeServer(this.lockServer);
+    this.releaseFileLock();
+  }
+
+  private releaseFileLock(): void {
+    if (this.lockFd !== undefined) { closeSync(this.lockFd); this.lockFd = undefined }
   }
 
   wait(): Promise<void> {
@@ -55,17 +74,45 @@ export class RuntimeOwner {
 }
 
 export function runtimeOwnerKey(dataDirectory: string): string {
-  const canonical = normalize(resolve(dataDirectory)).toLowerCase();
+  // Resolve the nearest existing ancestor so aliases agree even on first startup.
+  let ancestor = resolve(dataDirectory);
+  const missing: string[] = [];
+  for (;;) {
+    try { ancestor = realpathSync(ancestor); break }
+    catch (error) {
+      const parent = dirname(ancestor);
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT" || parent === ancestor) throw error;
+      missing.unshift(basename(ancestor)); ancestor = parent;
+    }
+  }
+  const canonical = normalize(resolve(ancestor, ...missing)).toLowerCase();
   return createHash("sha256").update(canonical).digest("hex").slice(0, 32);
 }
 
 function runtimeLockAddress(ownerKey: string): string {
-  return "\\\\.\\pipe\\banana-split-" + ownerKey;
+  return process.platform === "win32"
+    ? "\\\\.\\pipe\\banana-split-" + ownerKey
+    : `/tmp/banana-split-${process.getuid!()}-${ownerKey}.sock`;
+}
+
+async function removeStaleSocket(address: string): Promise<void> {
+  await new Promise<void>((resolvePromise, reject) => {
+    const socket = createConnection(address);
+    socket.once("connect", () => { socket.destroy(); resolvePromise() });
+    socket.once("error", (error: NodeJS.ErrnoException) => {
+      // Bun on macOS reports ENOENT for a socket left by a killed process.
+      if (error.code === "ECONNREFUSED" || error.code === "ENOENT") {
+        try { unlinkSync(address) }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") { reject(error); return } }
+      } else { reject(error); return }
+      resolvePromise();
+    });
+  });
 }
 
 function listen(server: import("node:net").Server, target: number | string, inUseMessage: string, host?: string): Promise<void> {
   return new Promise((resolvePromise, reject) => {
-    const onError = (error: NodeJS.ErrnoException) => reject(new Error(error.code === "EADDRINUSE" || typeof target === "string" ? inUseMessage : String(error)));
+    const onError = (error: NodeJS.ErrnoException) => reject(new Error(error.code === "EADDRINUSE" ? inUseMessage : String(error)));
     server.once("error", onError);
     const onListening = () => {
       server.off("error", onError);
@@ -102,5 +149,6 @@ export function runtimeCall(port: number, method: string, params: JsonObject = {
     socket.on("connect", () => socket.write(`${JSON.stringify({ id: crypto.randomUUID(), method, params })}\n`));
     socket.on("data", (chunk) => { buffer += chunk; const end = buffer.indexOf("\n"); if (end < 0) return; clearTimeout(timeout); socket.end(); resolve((JSON.parse(buffer.slice(0, end)) as JsonObject).result as JsonObject) });
     socket.on("error", (error) => { clearTimeout(timeout); reject(new Error(`runtime_unavailable: ${error.message}`)) });
+    socket.once("close", () => { clearTimeout(timeout); reject(new Error("runtime_unavailable: runtime connection closed before responding")) });
   });
 }

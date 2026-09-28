@@ -1,14 +1,28 @@
-# Banana Split V1
+# Banana Split
 
-Banana Split is a Windows 11 x64 Codex plugin for durable, recursive managed-agent workflows. One local runtime owns orchestration state and one Codex App Server connection; the plugin's MCP surface gives the main Codex task a conversation-native cockpit. There is no dashboard and the standalone CLI is read-only.
+Current release: **0.1.0 (internal alpha)**.
+
+Banana Split is a Windows 11 x64 and macOS Codex plugin for durable, recursive managed-agent workflows. One local runtime owns orchestration state and one Codex App Server connection; the plugin's MCP surface gives the main Codex task a conversation-native cockpit. There is no dashboard and the standalone CLI is read-only.
 
 The normative product contract is [`docs/BANANA_SPLIT_V1_SPEC.md`](docs/BANANA_SPLIT_V1_SPEC.md). The shipped runtime is [`distribution/plugins/banana-split-v1/runtime/banana.exe`](distribution/plugins/banana-split-v1/runtime/banana.exe).
 
-This is a V1 release for Windows 11 x64. Bug reports and focused pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Please report security issues according to [SECURITY.md](SECURITY.md).
+macOS packages support Apple Silicon and Intel. Bug reports and focused pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Please report security issues according to [SECURITY.md](SECURITY.md).
+
+## Versioning
+
+Releases use `major.minor.patch` versioning:
+
+- `0.1.0`: initial internal alpha.
+- `0.5.0`: start of beta; subsequent `0.x` releases remain beta until `1.0.0`.
+- `1.0.0`: first stable release.
+
+During `0.x` development, increment the patch for fixes and the minor for meaningful features or breaking changes. Document breaking changes in release notes. Starting with `1.0.0`, follow [Semantic Versioning](https://semver.org/): major for breaking changes, minor for backward-compatible features, and patch for backward-compatible fixes.
+
+The beta milestone is a project convention. Minor versions are integers, so `0.10.0` follows `0.9.0` if needed. Local plugin rebuilds may append `+codex.<timestamp>` build metadata without changing the release version. The `banana-split-v1` plugin identifier, V1 design specification, and configuration/state schema versions are separate from release numbering.
 
 ## Requirements and build
 
-- Windows 11 x64
+- Windows 11 x64 or macOS (Apple Silicon or Intel)
 - A current authenticated `codex` CLI on `PATH`
 - Bun 1.3 or newer to build the self-contained executable
 - Node/npm to install the pinned MCP SDK dependencies
@@ -18,14 +32,22 @@ npm install
 npm run verify
 ```
 
-`npm run verify` bundles the TypeScript, runs the deterministic runtime suite, and compiles `dist/banana.exe`. Copy a rebuilt executable into `distribution/plugins/banana-split-v1/runtime/banana.exe` before installing the plugin package.
+`npm run verify` bundles the TypeScript, runs the runtime suite, and builds a self-contained plugin for the current computer under `dist/bun-<platform>-<architecture>/`. `npm run build:windows` builds the Windows x64 package; `npm run build:macos` builds both Apple Silicon and Intel packages. Cross-compilation verifies the build, but does not run it on the target OS. The checked-in `distribution` package retains the original Windows executable; install rebuilt packages from `dist`.
 
 ## Install the packaged plugin
 
-From this repository:
+After building, install the package for your computer. On Apple Silicon macOS:
+
+```sh
+codex plugin marketplace add ./dist/bun-darwin-arm64
+codex plugin add banana-split-v1@banana-split-v1
+codex plugin list
+```
+
+On Intel macOS, use `./dist/bun-darwin-x64`. On Windows:
 
 ```powershell
-codex plugin marketplace add .\distribution
+codex plugin marketplace add .\dist\bun-windows-x64
 codex plugin add banana-split-v1@banana-split-v1
 codex plugin list
 ```
@@ -38,7 +60,7 @@ When updating Banana Split itself, restart Codex Desktop after reinstalling the 
 
 ## Configuration
 
-The packaged configuration is `distribution/plugins/banana-split-v1/config/banana.json`; the documented editable example is `config/banana.example.json`, validated by `config/banana.schema.json` and strict runtime checks. Configuration is read only at runtime startup. Workflow preset, permission, recommendation, and host-capability values are snapshotted immutably at workflow start.
+The packaged configuration is `distribution/plugins/banana-split-v1/config/banana.json`; the documented editable example is `config/banana.example.json`, validated by `config/banana.schema.json` and strict runtime checks. Configuration is read only at runtime startup. Workflow settings are snapshotted at start. Only the host can change preset tiers afterward; permission, recommendation, and host-capability snapshots remain fixed.
 
 Important defaults:
 
@@ -48,15 +70,27 @@ Important defaults:
 - native delegation, direct Computer Use, apps, plugins, and non-allowlisted MCP servers are disabled in managed threads;
 - `computer_use` is only advertised when both startup configuration and the current host report it available. Omitting the host report advertises nothing.
 
-Optional `mcp_servers` arrays describe additional allowlisted MCP capabilities. Omitted child permission objects and fields inherit the direct parent's effective policy; explicit MCP arrays replace the inherited array and may only remove entries. Empty arrays allow none. Widening is rejected, never clamped. Codex App Server 0.146.0 has no complete generic built-in-tool allowlist API, so an explicit `tools` ceiling or child restriction fails with `app_server_unsupported` instead of claiming an unenforced boundary.
+The shipped `runtime.permission_ceiling.mcp_servers: "workspace"` setting resolves enabled MCP servers declared in Codex’s trusted project configuration layers for the exact workflow workspace at workflow creation. Banana host MCP servers remain excluded. Each workflow snapshots the resolved names; subsequent workspace configuration changes do not expand existing agents’ permissions. Use an explicit `mcp_servers` array for a fixed runtime ceiling, or `[]` (also the legacy omission default) to allow none. Omitted child permission objects and fields inherit the direct parent's effective policy; explicit MCP arrays replace the inherited array and may only remove entries. Empty arrays allow none. Widening is rejected, never clamped. Codex App Server 0.146.0 has no complete generic built-in-tool allowlist API, so an explicit `tools` ceiling or child restriction fails with `app_server_unsupported` instead of claiming an unenforced boundary.
 
 Every preset is validated against the current App Server model catalog at runtime startup and workflow start. Unsupported model, reasoning-effort, or explicit service-tier combinations fail; there is no routing fallback.
 
-State defaults to `%LOCALAPPDATA%\BananaSplit`. It contains potentially sensitive authored payloads and inherits the current user's private profile ACLs. Poll views omit raw payloads; trusted inspection reveals them only with `include_payloads: true`.
+State defaults to `%LOCALAPPDATA%\BananaSplit` on Windows and `~/Library/Application Support/BananaSplit` on macOS. The `%LOCALAPPDATA%` placeholder in the shared configuration resolves to the macOS Application Support directory. Windows state inherits the user's profile ACLs; new macOS state directories use owner-only permissions. Poll views omit raw payloads; trusted inspection reveals them only with `include_payloads: true`.
+
+Windows runtime ownership uses a named pipe. macOS uses a Unix socket with stale-socket recovery after a crash, and an owned process group for App Server shutdown.
+
+## Preset tiers
+
+Each new workflow uses one active tier from a catalog of exactly three tiers, with four presets per tier. `workflow_defaults.preset_tiers` defines the catalog and `default_tier` selects the initial tier. All tiers share the same four preset names so switching a tier preserves each agent's assigned preset. Each entry specifies a model, reasoning level, and optional service tier.
+
+The shipped tiers are `cost-optimized`, `default`, and `performance-optimized`; `default` is selected initially. The four stable preset names describe their intended use rather than a particular model, so an agent keeps the same assignment when the host changes tiers.
+
+The host can pass `tier` and a full `preset_tiers` catalog to `banana_workflow_start`. It can later call `banana_workflow_set_tier(workflow_id, tier, preset_tiers?)` to switch tiers or replace the workflow catalog. All entries are validated against the current App Server model catalog before a change is accepted. Existing preset names must remain available. Managed agents have no tier-changing tool and can spawn only with presets from the active tier.
+
+Changes affect new agents immediately and existing agents on their next turn. Running turns keep their current model and are not interrupted. Polls expose the tier catalog and active tier; agent inspection includes per-turn routing history. These settings and history survive runtime restart. Existing workflows without tiers retain their original flat preset snapshot; a host can opt them in by supplying a full catalog with their existing preset names. Flat `preset_overrides` applies only to workflows without tiers.
 
 ## Host operation
 
-The installed `$banana-split` skill drives the eight host tools:
+The installed `$banana-split` skill drives the nine host tools:
 
 1. Start with a standalone task and exact workspace.
 2. Poll with the returned cursor until terminal.
