@@ -138,7 +138,8 @@
         "preset_tiers": {
           "type": "object",
           "minProperties": 3,
-          "maxProperties": 3,
+          "maxProperties": 4,
+          "description": "Four shipped tiers; existing three-tier catalogs remain supported. Every tier must contain the same four preset names.",
           "additionalProperties": {
             "type": "object",
             "minProperties": 4,

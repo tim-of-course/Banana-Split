@@ -11,7 +11,7 @@ body:
     id: version
     attributes:
       label: Version or commit
-      placeholder: v1.0.0 or a commit SHA
+      placeholder: v0.1.0 or a commit SHA
     validations:
       required: true
   - type: textarea
@@ -32,7 +32,7 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: Include relevant Windows, Codex CLI, Bun, and Node versions.
+      description: Include your OS and architecture (Windows x64, macOS Apple Silicon or Intel), Codex CLI version, installation method, and Bun/Node versions if building from source.
     validations:
       required: true
   - type: textarea

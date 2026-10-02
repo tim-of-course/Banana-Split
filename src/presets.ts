@@ -2,7 +2,8 @@ import type { Preset, PresetTiers } from "./model.js";
 
 export function readPresetTiers(value: unknown, defaultPreset: string): PresetTiers {
   const tiers = record(value, "preset_tiers");
-  if (Object.keys(tiers).length !== 3) throw new Error("preset_tiers must contain exactly three tiers");
+  // Existing durable workflows retain their original three-tier catalog.
+  if (![3, 4].includes(Object.keys(tiers).length)) throw new Error("preset_tiers must contain three or four tiers");
   const result: PresetTiers = {};
   let slots: string[] | undefined;
   for (const [tier, raw] of Object.entries(tiers)) {

@@ -16,6 +16,7 @@
     "build": "bun scripts/build.ts",
     "build:windows": "bun scripts/build.ts bun-windows-x64",
     "build:macos": "bun scripts/build.ts bun-darwin-arm64 && bun scripts/build.ts bun-darwin-x64",
+    "package:release": "bun scripts/package-release.ts",
     "check": "bun build --target=bun --outfile .banana-test/check.js src/index.ts",
     "test": "bun test",
     "verify": "npm run check && npm test && npm run build"

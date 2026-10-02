@@ -18,30 +18,36 @@
     "default_tier": "default",
     "preset_tiers": {
       "cost-optimized": {
-        "complex-judgment": {"model": "gpt-6-astra", "reasoning_effort": "medium"},
-        "default-judgment": {"model": "gpt-6-sol", "reasoning_effort": "high"},
-        "general-workhorse": {"model": "gpt-6-sol", "reasoning_effort": "high"},
-        "defined-workhorse": {"model": "gpt-5.6-luna", "reasoning_effort": "xhigh"}
+        "complex-judgment": {"model": "gpt-6.1-sol", "reasoning_effort": "xhigh"},
+        "default-judgment": {"model": "gpt-6.1-sol", "reasoning_effort": "high"},
+        "general-workhorse": {"model": "gpt-6.1-sol", "reasoning_effort": "medium"},
+        "defined-workhorse": {"model": "gpt-6-luna", "reasoning_effort": "xhigh"}
       },
       "default": {
-        "complex-judgment": {"model": "gpt-6-astra", "reasoning_effort": "medium"},
-        "default-judgment": {"model": "gpt-6-astra", "reasoning_effort": "low"},
-        "general-workhorse": {"model": "gpt-6-sol", "reasoning_effort": "high"},
-        "defined-workhorse": {"model": "gpt-6-sol", "reasoning_effort": "high"}
+        "complex-judgment": {"model": "gpt-6-astra", "reasoning_effort": "xhigh"},
+        "default-judgment": {"model": "gpt-6.1-sol", "reasoning_effort": "high"},
+        "general-workhorse": {"model": "gpt-6.1-sol", "reasoning_effort": "medium"},
+        "defined-workhorse": {"model": "gpt-6.1-sol", "reasoning_effort": "low"}
       },
       "performance-optimized": {
         "complex-judgment": {"model": "gpt-6-astra", "reasoning_effort": "xhigh"},
-        "default-judgment": {"model": "gpt-6-astra", "reasoning_effort": "low"},
+        "default-judgment": {"model": "gpt-6-astra", "reasoning_effort": "xhigh"},
         "general-workhorse": {"model": "gpt-6-astra", "reasoning_effort": "low"},
-        "defined-workhorse": {"model": "gpt-6-sol", "reasoning_effort": "high"}
+        "defined-workhorse": {"model": "gpt-6.1-sol", "reasoning_effort": "medium"}
+      },
+      "max-performance": {
+        "complex-judgment": {"model": "gpt-6-astra", "reasoning_effort": "ultra"},
+        "default-judgment": {"model": "gpt-6-astra", "reasoning_effort": "ultra"},
+        "general-workhorse": {"model": "gpt-6-astra", "reasoning_effort": "xhigh"},
+        "defined-workhorse": {"model": "gpt-6-astra", "reasoning_effort": "low"}
       }
     },
     "default_preset": "default-judgment",
     "presets": {
-      "complex-judgment": { "model": "gpt-6-astra", "reasoning_effort": "medium" },
-      "default-judgment": { "model": "gpt-6-astra", "reasoning_effort": "low" },
-      "general-workhorse": { "model": "gpt-6-sol", "reasoning_effort": "high" },
-      "defined-workhorse": { "model": "gpt-6-sol", "reasoning_effort": "high" }
+      "complex-judgment": {"model": "gpt-6-astra", "reasoning_effort": "xhigh"},
+      "default-judgment": {"model": "gpt-6.1-sol", "reasoning_effort": "high"},
+      "general-workhorse": {"model": "gpt-6.1-sol", "reasoning_effort": "medium"},
+      "defined-workhorse": {"model": "gpt-6.1-sol", "reasoning_effort": "low"}
     },
     "preset_recommendations": {
       "complex-judgment": { "recommended_for": "Truly complex work, especially work requiring significant judgment that is not being handled by the user" },

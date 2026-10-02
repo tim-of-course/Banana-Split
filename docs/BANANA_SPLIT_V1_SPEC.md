@@ -463,12 +463,12 @@ A preset represents a reusable compute configuration:
 
 ```json
 {
-  "model": "gpt-5.6-luna",
+  "model": "gpt-6-luna",
   "reasoning_effort": "xhigh"
 }
 ```
 
-V1 ships with `cost-optimized`, `default`, and `performance-optimized` tiers of four presets and the owner-defined recommendations in section 19. The tier catalogs share neutral preset names so assignments remain meaningful across model changes. The host may replace tier definitions without code changes. The runtime exposes the notes to agents but does not infer additional task-to-model policy.
+V1 ships with `cost-optimized`, `default`, `performance-optimized`, and `max-performance` tiers of four presets and the owner-defined recommendations in section 19. The tier catalogs share neutral preset names so assignments remain meaningful across model changes. The host may replace tier definitions without code changes. The runtime exposes the notes to agents but does not infer additional task-to-model policy.
 
 Preset rules:
 
@@ -476,7 +476,7 @@ Preset rules:
 - A child names a preset or inherits its parent's preset name, resolved within the active tier.
 - The workflow root names a preset or uses the configured default.
 - The configuration is snapshotted at workflow start. Only the host may change the active tier or preset definitions afterward.
-- Tiered workflows may replace the full three-tier catalog at start or through the host tier tool. Flat legacy workflow overrides may add or replace whole named preset entries at start; field-by-field merge is not supported.
+- Tiered workflows may replace the full catalog at start or through the host tier tool. Catalogs contain three or four tiers sharing four preset names; older three-tier catalogs remain valid. Flat legacy workflow overrides may add or replace whole named preset entries at start; field-by-field merge is not supported.
 - Every preset in the resolved workflow catalog is validated against App Server model capabilities at workflow start.
 - Unsupported models, effort levels, or explicitly requested service tiers fail explicitly.
 - Provider fallback is not silently enabled for an explicit preset.
@@ -791,63 +791,27 @@ Official references:
 
 V1 uses small runtime-startup configuration plus a per-workflow preset tier catalog controlled by the host.
 
-Shipped V1 defaults:
+The complete shipped defaults are maintained in [the package configuration](../distribution/plugins/banana-split-v1/config/banana.json) and [the example configuration](../config/banana.example.json), with their structure defined by [the JSON schema](../config/banana.schema.json). The initial tier is `default`, and the initial root preset is `default-judgment`. The legacy flat `workflow_defaults.presets` catalog mirrors the `default` tier.
 
-```json
-{
-  "version": 1,
-  "runtime": {
-    "data_directory": "%LOCALAPPDATA%/BananaSplit",
-    "scheduler": {
-      "max_active_turns": 16
-    },
-    "permission_ceiling": {
-      "sandbox": "workspaceWrite",
-      "network_access": false,
-      "approval_policy": "onRequest",
-      "approval_reviewer": "host"
-    },
-    "host_capabilities": {
-      "computer_use": true
-    }
-  },
-  "workflow_defaults": {
-    "default_preset": "default-judgment",
-    "presets": {
-      "complex-judgment": {
-        "model": "gpt-6-astra",
-        "reasoning_effort": "high"
-      },
-      "default-judgment": {
-        "model": "gpt-6-astra",
-        "reasoning_effort": "medium"
-      },
-      "general-workhorse": {
-        "model": "gpt-6-sol",
-        "reasoning_effort": "high"
-      },
-      "defined-workhorse": {
-        "model": "gpt-6-sol",
-        "reasoning_effort": "high"
-      }
-    },
-    "preset_recommendations": {
-      "complex-judgment": {
-        "recommended_for": "Truly complex work, especially work requiring significant judgment that is not being handled by the user"
-      },
-      "default-judgment": {
-        "recommended_for": "Default for judgment calls, advisor work, and complex work"
-      },
-      "general-workhorse": {
-        "recommended_for": "Less-defined workhorse work, including complex or critical tasks"
-      },
-      "defined-workhorse": {
-        "recommended_for": "Well-defined workhorse tasks, low-cost bulk work, or implementation paired with a Sol advisor"
-      }
-    }
-  }
-}
-```
+Shipped model and reasoning-effort assignments:
+
+| Preset | `cost-optimized` | `default` | `performance-optimized` | `max-performance` |
+| --- | --- | --- | --- | --- |
+| `complex-judgment` | Sol · xhigh | Astra · xhigh | Astra · xhigh | Astra · ultra |
+| `default-judgment` | Sol · high | Sol · high | Astra · xhigh | Astra · ultra |
+| `general-workhorse` | Sol · medium | Sol · medium | Astra · low | Astra · xhigh |
+| `defined-workhorse` | Luna · xhigh | Sol · low | Sol · medium | Astra · low |
+
+Sol is `gpt-6.1-sol`, Luna is `gpt-6-luna`, and Astra is `gpt-6-astra`. Effort values, including `ultra`, must be advertised by the authenticated App Server model catalog; unsupported assignments fail validation.
+
+Shipped owner recommendations:
+
+| Preset | Recommended for |
+| --- | --- |
+| `complex-judgment` | Truly complex work, especially work requiring significant judgment that is not being handled by the user |
+| `default-judgment` | Default for judgment calls, advisor work, and complex work |
+| `general-workhorse` | Less-defined workhorse work, including complex or critical tasks |
+| `defined-workhorse` | Well-defined workhorse tasks, low-cost bulk work, or implementation paired with a Sol advisor |
 
 These are shipped owner recommendations, not runtime roles or enforced routing. Shipped presets omit a service tier and therefore use the current Codex default. The owner may edit the catalog and notes without changing code. Omitted optional permission and allowlist fields resolve under the default and inheritance rules in section 15; omission never means unrestricted authority.
 
@@ -867,7 +831,7 @@ Configuration principles:
 - Exact resolved snapshot retained for audit and recovery
 - Workspace, effective permission ceiling, host-capability advertisement, and recommendation notes are immutable workflow-start snapshots; preset tiers may be changed only by the host
 
-All configuration is loaded once at runtime startup. Scheduler settings and configured defaults require a runtime restart to change; host tier changes affect only the selected workflow. Flat legacy workflow-start preset overrides replace whole named entries, may add names, and are validated with the final snapshot. Tiered workflows share four stable preset names across three tiers. Unsupported configuration versions fail startup. There is no configuration file watcher; CLI `watch` observes runtime state through the owner and is unrelated to configuration reload.
+All configuration is loaded once at runtime startup. Scheduler settings and configured defaults require a runtime restart to change; host tier changes affect only the selected workflow. Flat legacy workflow-start preset overrides replace whole named entries, may add names, and are validated with the final snapshot. Tiered workflows share four stable preset names across three or four tiers; the shipped catalog has four. Unsupported configuration versions fail startup. There is no configuration file watcher; CLI `watch` observes runtime state through the owner and is unrelated to configuration reload.
 
 ## 20. Minimal agent tool surface
 
@@ -987,7 +951,7 @@ The host skill performs the complete conversation-native loop: construct the sta
 banana_workflow_start(task, details?, workspace, root_preset?, tier?, preset_tiers?, preset_overrides?, root_permissions?, host_capabilities?: {computer_use: boolean})
 ```
 
-Start a workflow. User-owned startup configuration supplies the managed-agent permission ceiling and host-capability ceiling; model arguments may narrow permissions but cannot broaden them. host_capabilities is the main host's current availability report, not a requested grant. Its omission reports no available host capabilities. The immutable workflow advertisement is the intersection of this report and the configured ceiling. Return workflow/root IDs, resolved root preset, fresh root provenance, snapshot summary including the active tier and tier catalog, and initial workflow state.
+Start a workflow. The host passes an explicitly selected tier in this call so the first root turn uses it; omission selects the configured default. For the shipped catalog, natural-language "high performance" selects `performance-optimized`, "max performance" or "maximum performance" selects `max-performance`, "cheap" or "cost optimized" selects `cost-optimized`, and "default" selects `default`. Exact configured names take precedence; the host does not invent missing definitions. User-owned startup configuration supplies the managed-agent permission ceiling and host-capability ceiling; model arguments may narrow permissions but cannot broaden them. host_capabilities is the main host's current availability report, not a requested grant. Its omission reports no available host capabilities. The immutable workflow advertisement is the intersection of this report and the configured ceiling. Return workflow/root IDs, resolved root preset, fresh root provenance, snapshot summary including the active tier and tier catalog, and initial workflow state.
 
 ### `banana_workflow_poll`
 
@@ -1055,7 +1019,7 @@ banana_host_respond(workflow_id, request_id, status: in_progress | completed | d
 
 Claim or terminally resolve a host-capability request. `pending` may move to `in_progress`, `declined`, or `failed`; `in_progress` or `uncertain` may move to `completed` or `failed`. `completed` requires a summary or evidence in `details`; `declined` and `failed` require a summary. Invalid or duplicate transitions fail with `invalid_state` or `request_terminal`. A response after requester cancellation may annotate uncertain action evidence as defined in section 12 without changing request resolution. Optional claim summary and details are retained for inspection without waking the requester; a terminal response replaces them with its final summary and evidence. Return the durable request and action state. Only the main host may call it.
 
-The host-only `banana_workflow_set_tier(workflow_id, tier, preset_tiers?)` selects a tier and optionally replaces its full catalog. Exactly three tiers must share four preset names, including the default and existing agent assignments. Validate all model/effort/tier combinations before accepting a change. New agents and existing agents' next turns use the new routing; active turns continue unchanged. Tier settings and per-turn routing history are durable, and agent inspection exposes the history. Other configuration remains fixed during the workflow. The standalone CLI is read-only and exposes only `watch`, `inspect`, and `transcript`; it cannot start, send, control, approve, or answer host requests.
+The host-only `banana_workflow_set_tier(workflow_id, tier, preset_tiers?)` selects a tier and optionally replaces its full catalog. The catalog must contain three or four tiers sharing the same four preset names, including the default and existing agent assignments. Validate all model/effort/tier combinations before accepting a change. New agents and existing agents' next turns use the new routing; active turns continue unchanged. Tier settings and per-turn routing history are durable, and agent inspection exposes the history. Other configuration remains fixed during the workflow. The standalone CLI is read-only and exposes only `watch`, `inspect`, and `transcript`; it cannot start, send, control, approve, or answer host requests.
 
 ## 22. Observability
 
@@ -1084,6 +1048,8 @@ This default is richer than a heartbeat but smaller than a transcript dump. It s
 - What work may have produced side effects before interruption?
 
 Every managed agent is discoverable and fully inspectable from the cockpit using its short or durable ID. The displayed task label is deterministic whitespace-normalized truncation of the authored task to 96 characters, never a generated summary. Poll omits raw tasks, briefs, messages, request context, submissions, and evidence; `include_payloads: true` reveals them to the trusted local user. Inspection exposes context provenance, resolved preset, effective permissions, lifecycle state, dependencies, material history, advice/review state, results, and side-effect uncertainty. A complete Codex transcript is available read-only and paginated on demand. Codex App Server remains authoritative; Banana stores identifiers and fetches rather than duplicates it.
+
+The host final recap reports all tiers used, tier changes, and configured versus workflow-overridden catalogs, plus models and reasoning efforts grouped by distinct agent count with the root coordinator separate from subagents. Resumed agents count once in the total; agents that change routing may appear in multiple model/effort groups. Per-turn routing history supplies the resolved configuration, while observed routing fields supply confirmation when App Server returns it. Unconfirmed settings are labeled as resolved rather than observed, and unavailable details remain unknown. The final active tier alone is insufficient to describe earlier turns. Legacy flat catalogs are reported as having no tier.
 
 Full transcripts should not automatically flood the main model's context. When the host surface can show a user-only inline panel or attachment, that is the preferred presentation; otherwise explicit pagination keeps inspection usable. Reading an agent never starts a turn, mutates its mailbox, or violates Banana's exclusive turn-start ownership.
 

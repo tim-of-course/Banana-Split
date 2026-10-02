@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { basename, dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { AppServer, ownedAppServerArgs } from "../src/app-server.js";
+import { readConfig } from "../src/config.js";
 import { Engine } from "../src/engine.js";
 import type { JsonObject, PermissionPolicy, Preset, PresetTiers, RuntimeConfig, WorkflowRecord } from "../src/model.js";
 import { readPresetTiers } from "../src/presets.js";
@@ -1337,10 +1339,19 @@ describe("App Server isolation", () => {
   test("preset validation accepts an advertised additional speed tier", async () => {
     const app = new AppServer("codex", 43892);
     app.models = async () => [{
-      id: "gpt-5.6-luna", supportedReasoningEfforts: [{ reasoningEffort: "xhigh" }],
+      id: "gpt-6-luna", supportedReasoningEfforts: [{ reasoningEffort: "xhigh" }],
       serviceTiers: [{ id: "priority" }], additionalSpeedTiers: ["fast"]
     }];
-    await expect(app.validatePresets({ luna: { model: "gpt-5.6-luna", reasoning_effort: "xhigh", service_tier: "fast" } })).resolves.toBeUndefined();
+    await expect(app.validatePresets({ luna: { model: "gpt-6-luna", reasoning_effort: "xhigh", service_tier: "fast" } })).resolves.toBeUndefined();
+  });
+
+  test("preset validation accepts ultra only when advertised by the selected model", async () => {
+    const app = new AppServer("codex", 43892);
+    const presets = { "max-performance/default-judgment": { model: "gpt-6-astra", reasoning_effort: "ultra" } };
+    app.models = async () => [{ id: "gpt-6-astra", supportedReasoningEfforts: [{ reasoningEffort: "xhigh" }, { reasoningEffort: "ultra" }] }];
+    await expect(app.validatePresets(presets)).resolves.toBeUndefined();
+    app.models = async () => [{ id: "gpt-6-astra", supportedReasoningEfforts: [{ reasoningEffort: "xhigh" }] }];
+    await expect(app.validatePresets(presets)).rejects.toThrow("max-performance/default-judgment effort ultra is unsupported");
   });
 
   test("startup MCP allowlists reject names absent from config/read", () => {
@@ -1763,16 +1774,102 @@ describe("host-controlled preset tiers", () => {
   const catalog = (): PresetTiers => Object.fromEntries(["tier-1", "tier-2", "tier-3"].map(tier => [tier,
     Object.fromEntries(["default", "deep", "worker", "fast"].map(name => [name, { model: `${tier}-${name}`, reasoning_effort: "high" }]))
   ]));
+  const shippedDefaults = () => readConfig(fileURLToPath(new URL("../distribution/plugins/banana-split-v1/config/banana.json", import.meta.url))).workflow_defaults;
 
-  test("requires three tiers with four shared preset slots", () => {
+  test("accepts four tiers and legacy three-tier catalogs with four shared preset slots", () => {
     const tiers = catalog();
     expect(readPresetTiers(tiers, "default")).toEqual(tiers);
+    tiers["tier-4"] = structuredClone(tiers["tier-3"]!);
+    expect(readPresetTiers(tiers, "default")).toEqual(tiers);
+    tiers["tier-5"] = structuredClone(tiers["tier-3"]!);
+    expect(() => readPresetTiers(tiers, "default")).toThrow("three or four");
+    delete tiers["tier-5"]; delete tiers["tier-4"];
     delete tiers["tier-3"];
-    expect(() => readPresetTiers(tiers, "default")).toThrow("exactly three");
+    expect(() => readPresetTiers(tiers, "default")).toThrow("three or four");
     const short = catalog(); delete short["tier-2"]!.fast;
     expect(() => readPresetTiers(short, "default")).toThrow("exactly four");
     const renamed = catalog(); renamed["tier-2"]!.other = renamed["tier-2"]!.fast!; delete renamed["tier-2"]!.fast;
     expect(() => readPresetTiers(renamed, "default")).toThrow("same four");
+  });
+
+  test("shipped and example catalogs match all four routing tiers and their legacy defaults", () => {
+    const expected: PresetTiers = {
+      "cost-optimized": {
+        "complex-judgment": { model: "gpt-6.1-sol", reasoning_effort: "xhigh" },
+        "default-judgment": { model: "gpt-6.1-sol", reasoning_effort: "high" },
+        "general-workhorse": { model: "gpt-6.1-sol", reasoning_effort: "medium" },
+        "defined-workhorse": { model: "gpt-6-luna", reasoning_effort: "xhigh" }
+      },
+      "default": {
+        "complex-judgment": { model: "gpt-6-astra", reasoning_effort: "xhigh" },
+        "default-judgment": { model: "gpt-6.1-sol", reasoning_effort: "high" },
+        "general-workhorse": { model: "gpt-6.1-sol", reasoning_effort: "medium" },
+        "defined-workhorse": { model: "gpt-6.1-sol", reasoning_effort: "low" }
+      },
+      "performance-optimized": {
+        "complex-judgment": { model: "gpt-6-astra", reasoning_effort: "xhigh" },
+        "default-judgment": { model: "gpt-6-astra", reasoning_effort: "xhigh" },
+        "general-workhorse": { model: "gpt-6-astra", reasoning_effort: "low" },
+        "defined-workhorse": { model: "gpt-6.1-sol", reasoning_effort: "medium" }
+      },
+      "max-performance": {
+        "complex-judgment": { model: "gpt-6-astra", reasoning_effort: "ultra" },
+        "default-judgment": { model: "gpt-6-astra", reasoning_effort: "ultra" },
+        "general-workhorse": { model: "gpt-6-astra", reasoning_effort: "xhigh" },
+        "defined-workhorse": { model: "gpt-6-astra", reasoning_effort: "low" }
+      }
+    };
+    const example = readConfig(fileURLToPath(new URL("../config/banana.example.json", import.meta.url))).workflow_defaults;
+    for (const defaults of [shippedDefaults(), example]) {
+      expect(defaults.preset_tiers).toEqual(expected);
+      expect(defaults.default_tier).toBe("default");
+      expect(defaults.default_preset).toBe("default-judgment");
+      expect(defaults.presets).toEqual(expected.default);
+    }
+  });
+
+  for (const tier of [undefined, "max-performance"]) test(`first coordinator turn uses ${tier ?? "the default tier when none is requested"}`, async () => {
+    const { engine, app } = setup();
+    engine.config.workflow_defaults = shippedDefaults();
+    const result = await engine.hostTool("banana_workflow_start", { task: "configured tier", workspace, ...(tier ? { tier } : {}) });
+    expect(result.ok).toBe(true); await tick();
+    const workflow = engine.state.workflows[String(result.workflow_id)]!;
+    const root = workflow.agents[workflow.root_id]!;
+    const expected = tier ? { model: "gpt-6-astra", reasoning_effort: "ultra" } : { model: "gpt-6.1-sol", reasoning_effort: "high" };
+    expect(workflow.active_tier).toBe(tier ?? "default");
+    expect(root.resolved_preset).toEqual(expected);
+    expect(app.turnRouting.at(-1)!.preset).toEqual(expected);
+    expect(root.routing_history).toEqual([{ turn_id: root.active_turn_id!, tier: tier ?? "default", preset: "default-judgment", resolved_preset: expected }]);
+    const poll = await engine.hostTool("banana_workflow_poll", { workflow_id: workflow.id, timeout_ms: 0 });
+    expect(poll.snapshot).toMatchObject({ active_tier: tier ?? "default", preset_catalog_source: "configured" });
+  });
+
+  test("switching to max-performance routes new children and the next coordinator turn and preserves reporting history", async () => {
+    const { engine, app } = setup();
+    engine.config.workflow_defaults = shippedDefaults();
+    const started = await engine.hostTool("banana_workflow_start", { task: "upgrade tier", workspace, tier: "performance-optimized" });
+    expect(started.ok).toBe(true); await tick();
+    const workflow = engine.state.workflows[String(started.workflow_id)]!, root = workflow.agents[workflow.root_id]!;
+    const firstTurn = root.active_turn_id!;
+    const changed = await engine.hostTool("banana_workflow_set_tier", { workflow_id: workflow.id, tier: "max-performance" });
+    expect(changed.ok).toBe(true);
+    expect(root.active_turn_id).toBe(firstTurn);
+    expect(root.resolved_preset).toEqual({ model: "gpt-6-astra", reasoning_effort: "xhigh" });
+    const spawned = await engine.agentTool(root.thread_id!, firstTurn, "banana_spawn", { task: "new worker", context: { source: "fresh" }, preset: "general-workhorse" });
+    expect(spawned.ok).toBe(true); await tick();
+    const child = workflow.agents[String(spawned.agent_id)]!;
+    expect(child.resolved_preset).toEqual({ model: "gpt-6-astra", reasoning_effort: "xhigh" });
+    expect(child.routing_history).toMatchObject([{ tier: "max-performance", preset: "general-workhorse", resolved_preset: { model: "gpt-6-astra", reasoning_effort: "xhigh" } }]);
+    await app.emit(root.thread_id!, firstTurn);
+    await engine.hostTool("banana_workflow_send", { workflow_id: workflow.id, agent_id: root.id, message: { type: "resume", body: "Continue at max performance" } });
+    await tick();
+    expect(app.turnRouting.at(-1)!.preset).toEqual({ model: "gpt-6-astra", reasoning_effort: "ultra" });
+    expect(root.routing_history).toMatchObject([
+      { turn_id: firstTurn, tier: "performance-optimized", resolved_preset: { model: "gpt-6-astra", reasoning_effort: "xhigh" } },
+      { turn_id: root.active_turn_id!, tier: "max-performance", resolved_preset: { model: "gpt-6-astra", reasoning_effort: "ultra" } }
+    ]);
+    const inspected = await engine.hostTool("banana_agent_inspect", { workflow_id: workflow.id, agent_id: root.id });
+    expect((inspected.agent as JsonObject).routing_history).toEqual(root.routing_history);
   });
 
   test("start snapshots all tiers and exposes only the active tier to agents", async () => {
@@ -1837,10 +1934,13 @@ describe("host-controlled preset tiers", () => {
     const changed = catalog(); changed["tier-3"]!.default!.model = "host-defined-model";
     const accepted = await engine.hostTool("banana_workflow_set_tier", { workflow_id: workflow.id, tier: "tier-3", preset_tiers: changed });
     expect(accepted.ok).toBe(true);
-    const loaded = new Engine(engine.config, engine.store, new FakeApp() as never).state.workflows[workflow.id]!;
+    const recovered = new Engine(engine.config, engine.store, new FakeApp() as never);
+    const loaded = recovered.state.workflows[workflow.id]!;
     expect(loaded.active_tier).toBe("tier-3");
     expect(loaded.preset_snapshot.default!.model).toBe("host-defined-model");
     expect(loaded.preset_tiers).toEqual(changed);
+    expect(await recovered.hostTool("banana_workflow_set_tier", { workflow_id: workflow.id, tier: "tier-1" })).toMatchObject({ ok: true });
+    expect(loaded.active_tier).toBe("tier-1");
     workflow.status = "completed";
     expect(await engine.hostTool("banana_workflow_set_tier", { workflow_id: workflow.id, tier: "tier-1" })).toMatchObject({ ok: false, error: { code: "invalid_state" } });
   });
