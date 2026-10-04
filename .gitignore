@@ -6,3 +6,5 @@ dist/
 .deps/
 .manual-cache/
 *.log
+/output/branding/
+/assets/branding/*.zip

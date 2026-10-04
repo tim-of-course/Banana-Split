@@ -4,7 +4,7 @@ Let Codex split a large task among agents that can delegate further, ask each ot
 
 For example, a coordinator can assign implementation and testing to separate agents, ask a reviewer to check the result, and send changes back to the original worker. Each agent has its own Codex thread. Children can start fresh or inherit their parent's completed conversation history.
 
-**Current release: 0.1.0, internal alpha.** Intended for supervised use on **Windows 11 x64 or macOS (Apple Silicon and Intel)**. Linux and WSL are not supported. See the [verification guide](docs/VERIFICATION.md) for the limits of the existing evidence.
+**Current release: 0.1.1, internal alpha.** Intended for supervised use on **Windows 11 x64 or macOS (Apple Silicon and Intel)**. Linux and WSL are not supported. See the [release notes](docs/releases/0.1.1.md) and [verification guide](docs/VERIFICATION.md) for the limits of the existing evidence.
 
 ## When to use it
 

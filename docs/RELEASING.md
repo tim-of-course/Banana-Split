@@ -13,13 +13,13 @@ npm test
 npm run package:release
 ```
 
-`package:release` cross-builds all three supported targets and replaces generated contents under `dist/releases/`. For version `0.1.0`, it produces:
+`package:release` cross-builds all three supported targets and replaces generated contents under `dist/releases/`. For version `0.1.1`, it produces:
 
 ```text
 dist/releases/
-  banana-split-0.1.0-windows-x64.tar.gz
-  banana-split-0.1.0-darwin-arm64.tar.gz
-  banana-split-0.1.0-darwin-x64.tar.gz
+  banana-split-0.1.1-windows-x64.tar.gz
+  banana-split-0.1.1-darwin-arm64.tar.gz
+  banana-split-0.1.1-darwin-x64.tar.gz
   SHA256SUMS
 ```
 

@@ -17,7 +17,7 @@ const permissions = z.strictObject({ sandbox: z.enum(["readOnly", "workspaceWrit
 
 export async function runMcp(config: RuntimeConfig, configPath: string): Promise<void> {
   await ensureRuntime(config, configPath);
-  const server = new McpServer({ name: "banana-split-v1", version: "0.1.0" });
+  const server = new McpServer({ name: "banana-split-v1", version: "0.1.1" });
   const call = (name: string, args: Record<string, unknown>) => runtimeCall(config.runtime.listen_port, "host_tool", { name, args }, 65000).then(toolResult);
 
   server.registerTool("banana_workflow_start", { description: "Start a durable recursive Banana Split workflow in a fresh Codex thread. Omit root_preset to use the configured default.", inputSchema: z.strictObject({

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Banana Split — Cherry Accent</title>
+<style>
+*{box-sizing:border-box}body{margin:0;padding:40px;background:#f7f5ef;color:#302522;font:15px/1.5 system-ui,sans-serif}main{max-width:1200px;margin:auto}header{display:flex;align-items:end;justify-content:space-between;gap:20px;margin-bottom:28px}h1{font-size:26px;margin:0;letter-spacing:-.8px}p{margin:4px 0;color:#71665e}.controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px}button{border:1px solid #d7d1c7;background:transparent;color:inherit;border-radius:8px;padding:9px 16px;cursor:pointer;font:inherit}button[aria-pressed=true]{background:#302522;color:#fff}label{display:flex;gap:12px;align-items:center;margin-left:auto}input{accent-color:#c95246;width:150px}.stage{min-height:350px;display:flex;align-items:center;justify-content:center;padding:36px;border:1px solid #e3dfd6;border-radius:16px;overflow:hidden;background:white}.stage[data-theme=dark]{background:#20221f}.stage[data-theme=checker]{background-color:#f8f6f0;background-image:linear-gradient(45deg,#e4e0d7 25%,transparent 25%),linear-gradient(-45deg,#e4e0d7 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#e4e0d7 75%),linear-gradient(-45deg,transparent 75%,#e4e0d7 75%);background-size:32px 32px;background-position:0 0,0 16px,16px -16px,-16px 0}.stage img{display:block;width:960px;max-width:100%;height:auto}.checks{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:24px}.panel{padding:24px;border:1px solid #e3dfd6;border-radius:16px;background:#fff}.panel h2{font-size:13px;letter-spacing:1.6px;text-transform:uppercase;margin:0 0 22px}.icons{display:flex;gap:28px;align-items:center;min-height:85px}.icons figure{margin:0;text-align:center;flex:1}.icons img{display:block;margin:auto}.icons figcaption{font-size:12px;color:#71665e;margin-top:12px}.mono{display:flex;align-items:center;height:100px}.mono img{width:100%;height:auto}.note{font-size:13px;margin-top:20px}@media(max-width:700px){body{padding:20px}header{display:block}.checks{grid-template-columns:1fr}label{margin:8px 0 0}.stage{min-height:180px;padding:18px}.icons{gap:12px}}
+</style>
+<main>
+<header><div><h1>Banana Split</h1><p>Cherry Accent · vector artwork</p></div><p>Clean curves. True transparency. Outlined lettering.</p></header>
+<div class="controls" aria-label="Preview controls">
+<button type="button" data-theme="light" aria-pressed="true">Light</button>
+<button type="button" data-theme="dark" aria-pressed="false">Dark</button>
+<button type="button" data-theme="checker" aria-pressed="false">Transparency</button>
+<label for="size">Logo width <input id="size" type="range" min="280" max="1040" value="960" step="10"><output id="size-value">960 px</output></label>
+</div>
+<div class="stage" data-theme="light"><img id="logo" src="logo-light.svg" alt="Banana Split logo with yellow banana curves and a cherry-red i-dot"></div>
+<section class="checks">
+<div class="panel"><h2>Small-size icons</h2><div class="icons">
+<figure><img src="icons/favicon-16.png" width="16" height="16" alt="16 pixel favicon"><figcaption>16 px</figcaption></figure>
+<figure><img src="icons/favicon-24.png" width="24" height="24" alt="24 pixel favicon"><figcaption>24 px</figcaption></figure>
+<figure><img src="icons/favicon-32.png" width="32" height="32" alt="32 pixel favicon"><figcaption>32 px</figcaption></figure>
+<figure><img src="icons/favicon-48.png" width="48" height="48" alt="48 pixel favicon"><figcaption>48 px</figcaption></figure>
+<figure><img src="icons/favicon-64.png" width="64" height="64" alt="64 pixel favicon"><figcaption>64 px</figcaption></figure>
+</div></div>
+<div class="panel"><h2>One-color reproduction</h2><div class="mono"><img src="logo-black.svg" alt="Single-color Banana Split logo"></div></div>
+</section>
+<p class="note">The favicon uses wider gaps and a charcoal tile for clarity at small sizes. Logo SVGs contain vector shapes only, with no external fonts or embedded bitmaps.</p>
+<img id="dark-source" src="logo-dark.svg" hidden alt="">
+</main>
+<script>
+const logo=document.getElementById('logo'),stage=document.querySelector('.stage'),light=logo.src,dark=document.getElementById('dark-source').src;
+for(const button of document.querySelectorAll('button[data-theme]'))button.addEventListener('click',()=>{stage.dataset.theme=button.dataset.theme;logo.src=button.dataset.theme==='dark'?dark:light;for(const b of document.querySelectorAll('button[data-theme]'))b.setAttribute('aria-pressed',String(b===button))});
+document.getElementById('size').addEventListener('input',event=>{logo.style.width=event.target.value+'px';document.getElementById('size-value').value=event.target.value+' px'});
+</script>
+</html>

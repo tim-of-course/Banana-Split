@@ -68,7 +68,7 @@ export class AppServer {
       if (!this.socket) throw new Error(`app_server_unsupported: could not connect to App Server on ws://127.0.0.1:${this.port}`);
     }
     const initialized = await this.call("initialize", {
-      clientInfo: { name: "banana_split", title: "Banana Split", version: "0.1.0" },
+      clientInfo: { name: "banana_split", title: "Banana Split", version: "0.1.1" },
       capabilities: { experimentalApi: true }
     });
     if (!["windows", "macos"].includes(String(initialized.platformOs))) throw new Error(`Banana Split requires Windows or macOS App Server, observed ${String(initialized.platformOs)}`);

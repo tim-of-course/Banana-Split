@@ -1,6 +1,6 @@
 # Banana Split plugin
 
-Current release: **0.1.0 (internal alpha)**. Supported on Windows 11 x64 and macOS (Apple Silicon and Intel). Linux and WSL are not supported.
+Current release: **0.1.1 (internal alpha)**. Supported on Windows 11 x64 and macOS (Apple Silicon and Intel). Linux and WSL are not supported.
 
 Banana Split lets Codex delegate a large task to agents that can create further agents, exchange advice, and review their children's work. It saves workflow state locally and keeps progress in your main Codex conversation.
 

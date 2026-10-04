@@ -1,0 +1,50 @@
+{
+  "renderer": "@resvg/resvg-js 2.6.2",
+  "sameLightDarkAlpha": true,
+  "transparentLetterCounters": true,
+  "openSymbolGaps": true,
+  "exactOpaquePalette": true,
+  "noExternalFontsOrImages": true,
+  "exports": [
+    {
+      "file": "logo-light.png",
+      "width": 2880,
+      "height": 768,
+      "transparent": 1751466,
+      "opaque": 449414,
+      "antialiased": 10960
+    },
+    {
+      "file": "logo-dark.png",
+      "width": 2880,
+      "height": 768,
+      "transparent": 1751466,
+      "opaque": 449414,
+      "antialiased": 10960
+    },
+    {
+      "file": "logo-black.png",
+      "width": 2880,
+      "height": 768,
+      "transparent": 1751466,
+      "opaque": 449414,
+      "antialiased": 10960
+    },
+    {
+      "file": "logo-white.png",
+      "width": 2880,
+      "height": 768,
+      "transparent": 1751466,
+      "opaque": 449414,
+      "antialiased": 10960
+    },
+    {
+      "file": "icon.png",
+      "width": 1024,
+      "height": 1024,
+      "transparent": 822966,
+      "opaque": 220364,
+      "antialiased": 5246
+    }
+  ]
+}

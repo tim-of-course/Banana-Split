@@ -1,6 +1,6 @@
 {
   "name": "banana-split-v1",
-  "version": "0.1.0+codex.20261002131108",
+  "version": "0.1.1",
   "description": "Durable recursive Codex agent workflows with bounded active-turn capacity.",
   "author": {
     "name": "Banana Split"
@@ -12,6 +12,12 @@
     "longDescription": "Banana Split runs independent fresh or inherited Codex agents with durable scheduling, messaging, advice, parent review, and a host-controlled Computer Use bridge.",
     "developerName": "Banana Split",
     "category": "Productivity",
+    "brandColor": "#302522",
+    "brandColorDark": "#F4C542",
+    "composerIcon": "./assets/composer-icon.svg",
+    "composerIconDark": "./assets/composer-icon.svg",
+    "logo": "./assets/icon.png",
+    "logoDark": "./assets/icon.png",
     "capabilities": [
       "Interactive",
       "Write"
