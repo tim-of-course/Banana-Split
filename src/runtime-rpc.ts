@@ -144,11 +144,28 @@ async function respond(engine: Engine | undefined, ownerKey: string, socket: imp
 export function runtimeCall(port: number, method: string, params: JsonObject = {}, timeoutMs = 65000): Promise<JsonObject> {
   return new Promise((resolve, reject) => {
     const socket = createConnection({ host: "127.0.0.1", port }); let buffer = "";
-    const timeout = setTimeout(() => { socket.destroy(); reject(new Error("runtime_unavailable: runtime call timed out")) }, timeoutMs);
+    let settled = false;
+    const finish = (error?: Error, result?: JsonObject) => {
+      if (settled) return;
+      settled = true; clearTimeout(timeout); socket.destroy();
+      if (error) reject(error); else resolve(result!);
+    };
+    const timeout = setTimeout(() => finish(new Error("runtime_unavailable: runtime call timed out")), timeoutMs);
     socket.setEncoding("utf8");
-    socket.on("connect", () => socket.write(`${JSON.stringify({ id: crypto.randomUUID(), method, params })}\n`));
-    socket.on("data", (chunk) => { buffer += chunk; const end = buffer.indexOf("\n"); if (end < 0) return; clearTimeout(timeout); socket.end(); resolve((JSON.parse(buffer.slice(0, end)) as JsonObject).result as JsonObject) });
-    socket.on("error", (error) => { clearTimeout(timeout); reject(new Error(`runtime_unavailable: ${error.message}`)) });
-    socket.once("close", () => { clearTimeout(timeout); reject(new Error("runtime_unavailable: runtime connection closed before responding")) });
+    socket.on("connect", () => {
+      try { socket.write(`${JSON.stringify({ id: crypto.randomUUID(), method, params })}\n`) }
+      catch (error) { finish(new Error(`runtime_unavailable: could not send runtime request: ${String(error)}`)) }
+    });
+    socket.on("data", (chunk) => {
+      buffer += chunk; const end = buffer.indexOf("\n"); if (end < 0 || settled) return;
+      try {
+        const response = JSON.parse(buffer.slice(0, end));
+        const result = response?.result;
+        if (!result || typeof result !== "object" || Array.isArray(result) || typeof result.ok !== "boolean") throw new Error("expected a result object with an ok flag");
+        finish(undefined, result);
+      } catch (error) { finish(new Error(`runtime_unavailable: invalid runtime response: ${String(error)}`)) }
+    });
+    socket.on("error", error => finish(new Error(`runtime_unavailable: ${error.message}`)));
+    socket.once("close", () => finish(new Error("runtime_unavailable: runtime connection closed before responding")));
   });
 }

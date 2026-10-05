@@ -9,7 +9,7 @@ import { AppServer, terminateProcessTree } from "../src/app-server.js";
 import { Engine } from "../src/engine.js";
 import { ceilingForWorkspace, readConfig } from "../src/config.js";
 import { RuntimeOwner, runtimeCall, runtimeOwnerKey } from "../src/runtime-rpc.js";
-import { ensureRuntime } from "../src/mcp-host.js";
+import { ensureRuntime } from "../src/runtime-client.js";
 
 test("writable-root ceilings distinguish omission, empty lists, descendants, and siblings", () => {
   const config = readConfig("distribution/plugins/banana-split-v1/config/banana.json");

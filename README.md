@@ -14,6 +14,8 @@ For a small task that only needs a helper, native Codex subagents may be suffici
 
 **Enabling the plugin changes delegation defaults.** Its `$banana-split` skill is eligible to activate when you ask for subagents, parallel workers, or delegation, even without naming Banana Split. To request the native mechanism, say **"use native Codex subagents"**. If Banana Split cannot start, the skill reports the failure instead of silently switching mechanisms. Ordinary tasks do not require a Banana workflow.
 
+Banana Split starts its runtime when you first use a Banana tool. Startup failures, including an outdated Codex CLI, are reported by that tool and leave ordinary Codex chats available. See [startup troubleshooting](docs/OPERATIONS.md#runtime-startup-and-recovery) for diagnostic logs and recovery.
+
 ## Quickstart
 
 ### 1. Check your setup

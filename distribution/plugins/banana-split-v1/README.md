@@ -34,6 +34,8 @@ While enabled, the skill is eligible to activate for requests involving subagent
 
 The installed runtime reads `config/banana.json` at startup. All configured model presets must be available to your Codex account. Editing the source or extracted package does not change Codex's installed copy, and reinstalling does not replace an already-running runtime.
 
+The MCP server is optional for Codex startup. It starts the runtime on the first Banana tool call; configuration and runtime failures return tool errors while ordinary chats remain available. Startup errors include recent diagnostics and the path to `runtime.log` in the configured data directory. Fix the cause and retry the tool in the same chat. A lost response may have side effects, so inspect retained workflows before repeating a command.
+
 Built packages include `docs/OPERATIONS.md`, `config/banana.schema.json` and `LICENSE`. Use the [online operations guide](https://github.com/tim-of-course/Banana-Split/blob/main/docs/OPERATIONS.md) when browsing this source template. It explains which configuration to edit, how to restart and reinstall, troubleshooting, and removal.
 
 The MCP server launches `runtime/banana.exe` on Windows or `runtime/banana` on macOS with `mcp --config config/banana.json`. The separate CLI provides read-only inspection; it cannot start or cancel workflows. The checked-in Windows executable is a historical Git LFS object; use a newly built or released platform package.

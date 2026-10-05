@@ -54,15 +54,16 @@ export class AppServer {
       let startupError: Error | undefined;
       this.process.once("error", error => { startupError = error });
       this.process.stderr?.on("data", (chunk) => process.stderr.write(`[codex] ${String(chunk)}`));
-      this.process.on("exit", (code) => {
-        const error = new Error(`Codex App Server exited with code ${code ?? "unknown"}`);
+      this.process.on("exit", (code, signal) => {
+        const error = new Error(`Codex App Server exited with ${signal ?? `code ${code ?? "unknown"}`}`);
+        startupError = error;
         for (const request of this.pending.values()) request.reject(error);
         this.pending.clear(); this.process = undefined;
       });
       const deadline = Date.now() + 10000;
       while (!this.socket && Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 150));
-        if (startupError) throw new Error(`app_server_unsupported: could not launch ${this.command}: ${startupError.message}`);
+        if (startupError) throw new Error(`app_server_unsupported: could not launch ${this.command}: ${startupError.message}. Verify codex_command and update Codex to a current version.`);
         try { await this.connect(500) } catch {}
       }
       if (!this.socket) throw new Error(`app_server_unsupported: could not connect to App Server on ws://127.0.0.1:${this.port}`);

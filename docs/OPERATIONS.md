@@ -134,9 +134,18 @@ Use `inspect --payloads` only when you need raw task/message payloads. Transcrip
 
 ### Runtime startup and recovery
 
+Banana Split is optional for Codex session startup (`required: false` in the packaged `.mcp.json`). Its MCP server connects and lists tools without loading runtime configuration or starting Codex App Server. The first Banana Split tool call starts or reconnects to the runtime. An outdated Codex, invalid configuration, or failed runtime returns a tool error while the host chat stays available.
+
+Tool errors identify the failing stage (`configuration`, `startup`, or `request`) and include recovery guidance. Runtime launches append diagnostics to `runtime.log` in the configured data directory; startup errors include its path and up to 8 KiB of recent output. The default paths are `%LOCALAPPDATA%\BananaSplit\runtime.log` on Windows and `~/Library/Application Support/BananaSplit/runtime.log` on macOS. The log is retained across launches; remove or archive it when the runtime is stopped if it grows large. Foreground launches still print to the terminal.
+
+After correcting a startup problem, call the tool again in the same chat. Concurrent calls in one MCP connection share a startup attempt; there is no background retry loop. A failed request is never automatically replayed. If a connection drops after dispatch, the response reports `side_effects: "possible"`; inspect retained workflows before repeating a mutation. Startup errors also conservatively report possible effects because runtime recovery can reconcile existing workflows, although the requested tool has not been sent.
+
+Existing installations need a rebuilt/reinstalled package and a fresh host session to get this behavior. If a manually configured `[mcp_servers.banana-split-v1]` entry sets `required = true`, change it to `false` too. Changing source files alone does not update Codex's installed copy.
+
 | Error | Next step |
 | --- | --- |
-| `runtime_unavailable` | Check the installed executable, `codex` on `PATH`, and loopback port. Use the foreground command below to see the startup error. |
+| `invalid_input` with stage `configuration` | Repair the installed configuration at the path in the tool error, then retry. Ordinary Codex work remains available. |
+| `runtime_unavailable` | Read the returned cause and `runtime.log`. Check the installed executable, current Codex version, `codex_command`/`PATH`, and loopback port. Use the foreground command below if needed. |
 | `preset_unavailable` | Match every preset in every tier to your authenticated App Server's model catalog; see [model configuration](#models-and-preset-tiers). Reinstall and restart after editing. |
 | `app_server_unsupported` | Check the detailed message. Update Codex if a required capability is absent, or remove an unenforceable `tools` restriction. Check project trust and MCP configuration if a server is unavailable. |
 | `permission_widening` | Narrow the request, or deliberately change startup settings and create a new workflow; an existing permission snapshot cannot be expanded. |

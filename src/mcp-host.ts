@@ -1,10 +1,7 @@
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import type { RuntimeConfig } from "./model.js";
-import { runtimeCall, runtimeOwnerKey } from "./runtime-rpc.js";
+import { createRuntimeClient } from "./runtime-client.js";
 
 const jsonObject = z.record(z.string(), z.unknown());
 const workflowId = z.string().min(1).describe("Copy the returned workflow_id or its unique short_id unchanged from the start result, list, or snapshot.");
@@ -15,10 +12,10 @@ const message = z.strictObject({ type: z.string().min(1), body: z.string().min(1
 const permissions = z.strictObject({ sandbox: z.enum(["readOnly", "workspaceWrite"]).optional(), writable_roots: z.array(z.string().min(1)).optional(),
   network_access: z.boolean().optional(), tools: z.array(z.string().min(1)).optional().describe("Omit this field to inherit built-in tools. Any explicit list returns app_server_unsupported because the current App Server cannot enforce a built-in tool allowlist. This field does not select Banana tools."), mcp_servers: z.array(z.string().min(1)).optional() });
 
-export async function runMcp(config: RuntimeConfig, configPath: string): Promise<void> {
-  await ensureRuntime(config, configPath);
+export async function runMcp(configPath: string): Promise<void> {
   const server = new McpServer({ name: "banana-split-v1", version: "0.1.1" });
-  const call = (name: string, args: Record<string, unknown>) => runtimeCall(config.runtime.listen_port, "host_tool", { name, args }, 65000).then(toolResult);
+  const runtime = createRuntimeClient(configPath);
+  const call = (name: string, args: Record<string, unknown>) => runtime(name, args).then(toolResult);
 
   server.registerTool("banana_workflow_start", { description: "Start a durable recursive Banana Split workflow in a fresh Codex thread. Omit root_preset to use the configured default.", inputSchema: z.strictObject({
     task: z.string().min(1).describe("Describe the managed root assignment, starting with a short objective. The first 96 characters become its visible thread name. Keep host polling, post-run transcript verification, and the host report out of this task; the root calls banana_finish before the host verifies the terminal workflow."), details: jsonObject.optional().describe("Optional structured assignment context delivered unchanged to the root alongside task. Put custom fields such as manifests inside details; additional top-level arguments are rejected. Fresh children receive only the details and brief their parent explicitly supplies. Keep host-owned report paths out of root deliverables and allowed outputs."), workspace: z.string().min(1).describe("Use the exact workspace requested by the user, including a requested subdirectory. This becomes managed threads' working directory; writable_roots do not change it."), root_preset: z.string().min(1).optional().describe("Configured preset name. Omit this field to use the configured default."),
@@ -53,39 +50,6 @@ export async function runMcp(config: RuntimeConfig, configPath: string): Promise
   }) }, (args) => call("banana_host_respond", args));
 
   await server.connect(new StdioServerTransport());
-}
-
-export async function ensureRuntime(config: RuntimeConfig, configPath: string): Promise<void> {
-  const expectedOwner = runtimeOwnerKey(config.runtime.data_directory);
-  let starting = false;
-  try {
-    const ping = await runtimeCall(config.runtime.listen_port, "ping", {}, 1000);
-    if (ping.owner_key !== expectedOwner) throw new Error("runtime_unavailable: 127.0.0.1:" + config.runtime.listen_port + " belongs to a different Banana Split data directory");
-    if (ping.ok === true) return;
-    starting = ping.state === "starting";
-  } catch (error) {
-    if (String(error).includes("belongs to a different Banana Split data directory")) throw error;
-  }
-  let startupError: Error | undefined;
-  if (!starting) {
-    const sourceMode = /(?:bun|node)(?:\.exe)?$/i.test(process.execPath);
-    const args = sourceMode ? [fileURLToPath(new URL("./index.ts", import.meta.url)), "runtime", "--config", configPath] : ["runtime", "--config", configPath];
-    const child = spawn(process.execPath, args, { detached: true, stdio: "ignore", windowsHide: true }); child.unref();
-    child.once("error", error => { startupError = error });
-  }
-  const deadline = Date.now() + 15000;
-  while (Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    if (startupError) throw new Error(`runtime_unavailable: could not launch ${process.execPath}: ${startupError.message}`);
-    try {
-      const ping = await runtimeCall(config.runtime.listen_port, "ping", {}, 1000);
-      if (ping.ok === true && ping.owner_key === expectedOwner) return;
-      if (ping.owner_key !== expectedOwner) throw new Error("runtime_unavailable: 127.0.0.1:" + config.runtime.listen_port + " belongs to a different Banana Split data directory");
-    } catch (error) {
-      if (String(error).includes("belongs to a different Banana Split data directory")) throw error;
-    }
-  }
-  throw new Error("runtime_unavailable: Banana Split runtime did not start within 15 seconds");
 }
 
 function toolResult(value: Record<string, unknown>): { content: [{ type: "text"; text: string }]; structuredContent: Record<string, unknown>; isError?: boolean } {

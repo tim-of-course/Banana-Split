@@ -846,6 +846,7 @@ Common wire rules:
 - Timestamps use UTC RFC 3339 and are informational. Recipient input sequence and workflow event order, not timestamps, determine behavior.
 - `details`, `context`, `brief`, and `expected_evidence` are arbitrary JSON objects and are the only open-ended extensibility containers. Unknown top-level fields are rejected.
 - Success responses contain `ok: true` plus the tool-specific fields below. Failures contain `ok: false` and `error: {code, message, workflow_id?, agent_id?, request_id?, state?, side_effects, details?}`.
+- The host MCP server is optional for Codex session startup and completes discovery independently of runtime configuration and App Server readiness. Runtime startup is deferred to a host tool call; failure returns an MCP tool error with a stage, cause, and recovery guidance while ordinary host work remains available. Runtime launches retain stderr in the data directory's `runtime.log`. A subsequent tool call can retry startup, but a dispatched tool is never automatically replayed after transport failure; uncertain effects are reported as `possible`.
 - `side_effects` is `none | possible | known`. Validation failure creates no durable object unless the response includes an allocated ID and terminal state.
 - Failed and cancelled agent/request records use the same compact terminal-fact shape: `{code, message, relevant_ids, side_effects, details?}`.
 - State-mutating agent tools may be called only by the active managed agent bound to the tool call and fail with `turn_closing` after a closing disposition succeeds.

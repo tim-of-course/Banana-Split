@@ -13,7 +13,7 @@ const configPath = resolve(option(args, "--config") ?? process.env.BANANA_CONFIG
 
 try {
   if (command === "runtime") await runtime(configPath);
-  else if (command === "mcp") await runMcp(readConfig(configPath), configPath);
+  else if (command === "mcp") await runMcp(configPath);
   else if (command === "watch") await watch(configPath, positional(args, 1, "workflow"));
   else if (command === "inspect") await inspect(configPath, positional(args, 1, "workflow"), positional(args, 2, "agent"));
   else if (command === "transcript") await transcript(configPath, positional(args, 1, "workflow"), positional(args, 2, "agent"));
@@ -27,8 +27,9 @@ async function runtime(path: string): Promise<void> {
   const config = readConfig(path);
   const owner = new RuntimeOwner(config.runtime.listen_port, config.runtime.data_directory);
   await owner.listen();
-  const store = new Store(config.runtime.data_directory); const app = new AppServer(config.runtime.codex_command, config.runtime.listen_port + 1);
+  const app = new AppServer(config.runtime.codex_command, config.runtime.listen_port + 1);
   try {
+    const store = new Store(config.runtime.data_directory);
     const engine = new Engine(config, store, app); await engine.initialize(); owner.attach(engine);
     process.stderr.write(`Banana Split runtime listening on 127.0.0.1:${config.runtime.listen_port}\n`);
     await owner.wait();
