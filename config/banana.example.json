@@ -20,12 +20,12 @@
       "cost-optimized": {
         "complex-judgment": {"model": "gpt-6.1-sol", "reasoning_effort": "xhigh"},
         "default-judgment": {"model": "gpt-6.1-sol", "reasoning_effort": "high"},
-        "general-workhorse": {"model": "gpt-6.1-sol", "reasoning_effort": "medium"},
+        "general-workhorse": {"model": "gpt-6.1-sol", "reasoning_effort": "low"},
         "defined-workhorse": {"model": "gpt-6-luna", "reasoning_effort": "xhigh"}
       },
       "default": {
         "complex-judgment": {"model": "gpt-6-astra", "reasoning_effort": "xhigh"},
-        "default-judgment": {"model": "gpt-6.1-sol", "reasoning_effort": "high"},
+        "default-judgment": {"model": "gpt-6.1-sol", "reasoning_effort": "xhigh"},
         "general-workhorse": {"model": "gpt-6.1-sol", "reasoning_effort": "medium"},
         "defined-workhorse": {"model": "gpt-6.1-sol", "reasoning_effort": "low"}
       },
@@ -37,7 +37,7 @@
       },
       "max-performance": {
         "complex-judgment": {"model": "gpt-6-astra", "reasoning_effort": "ultra"},
-        "default-judgment": {"model": "gpt-6-astra", "reasoning_effort": "ultra"},
+        "default-judgment": {"model": "gpt-6-astra", "reasoning_effort": "xhigh"},
         "general-workhorse": {"model": "gpt-6-astra", "reasoning_effort": "xhigh"},
         "defined-workhorse": {"model": "gpt-6-astra", "reasoning_effort": "low"}
       }
@@ -45,7 +45,7 @@
     "default_preset": "default-judgment",
     "presets": {
       "complex-judgment": {"model": "gpt-6-astra", "reasoning_effort": "xhigh"},
-      "default-judgment": {"model": "gpt-6.1-sol", "reasoning_effort": "high"},
+      "default-judgment": {"model": "gpt-6.1-sol", "reasoning_effort": "xhigh"},
       "general-workhorse": {"model": "gpt-6.1-sol", "reasoning_effort": "medium"},
       "defined-workhorse": {"model": "gpt-6.1-sol", "reasoning_effort": "low"}
     },

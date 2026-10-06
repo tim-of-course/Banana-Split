@@ -129,8 +129,8 @@ Each tier provides four agent presets. Agents choose a preset for their assignme
 | Agent preset | `cost-optimized` | `default` | `performance-optimized` | `max-performance` |
 | --- | --- | --- | --- | --- |
 | Complex judgment | Sol · xhigh | Astra · xhigh | Astra · xhigh | Astra · ultra |
-| Default judgment | Sol · high | Sol · high | Astra · xhigh | Astra · ultra |
-| General workhorse | Sol · medium | Sol · medium | Astra · low | Astra · xhigh |
+| Default judgment | Sol · high | Sol · xhigh | Astra · xhigh | Astra · xhigh |
+| General workhorse | Sol · low | Sol · medium | Astra · low | Astra · xhigh |
 | Defined workhorse | Luna · xhigh | Sol · low | Sol · medium | Astra · low |
 
 **Sol** is `gpt-6.1-sol`, **Luna** is `gpt-6-luna`, and **Astra** is `gpt-6-astra`. The coordinator uses `default-judgment` unless you request another configured preset.

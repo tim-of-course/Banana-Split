@@ -798,8 +798,8 @@ Shipped model and reasoning-effort assignments:
 | Preset | `cost-optimized` | `default` | `performance-optimized` | `max-performance` |
 | --- | --- | --- | --- | --- |
 | `complex-judgment` | Sol · xhigh | Astra · xhigh | Astra · xhigh | Astra · ultra |
-| `default-judgment` | Sol · high | Sol · high | Astra · xhigh | Astra · ultra |
-| `general-workhorse` | Sol · medium | Sol · medium | Astra · low | Astra · xhigh |
+| `default-judgment` | Sol · high | Sol · xhigh | Astra · xhigh | Astra · xhigh |
+| `general-workhorse` | Sol · low | Sol · medium | Astra · low | Astra · xhigh |
 | `defined-workhorse` | Luna · xhigh | Sol · low | Sol · medium | Astra · low |
 
 Sol is `gpt-6.1-sol`, Luna is `gpt-6-luna`, and Astra is `gpt-6-astra`. Effort values, including `ultra`, must be advertised by the authenticated App Server model catalog; unsupported assignments fail validation.

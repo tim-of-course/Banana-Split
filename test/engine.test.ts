@@ -1797,12 +1797,12 @@ describe("host-controlled preset tiers", () => {
       "cost-optimized": {
         "complex-judgment": { model: "gpt-6.1-sol", reasoning_effort: "xhigh" },
         "default-judgment": { model: "gpt-6.1-sol", reasoning_effort: "high" },
-        "general-workhorse": { model: "gpt-6.1-sol", reasoning_effort: "medium" },
+        "general-workhorse": { model: "gpt-6.1-sol", reasoning_effort: "low" },
         "defined-workhorse": { model: "gpt-6-luna", reasoning_effort: "xhigh" }
       },
       "default": {
         "complex-judgment": { model: "gpt-6-astra", reasoning_effort: "xhigh" },
-        "default-judgment": { model: "gpt-6.1-sol", reasoning_effort: "high" },
+        "default-judgment": { model: "gpt-6.1-sol", reasoning_effort: "xhigh" },
         "general-workhorse": { model: "gpt-6.1-sol", reasoning_effort: "medium" },
         "defined-workhorse": { model: "gpt-6.1-sol", reasoning_effort: "low" }
       },
@@ -1814,7 +1814,7 @@ describe("host-controlled preset tiers", () => {
       },
       "max-performance": {
         "complex-judgment": { model: "gpt-6-astra", reasoning_effort: "ultra" },
-        "default-judgment": { model: "gpt-6-astra", reasoning_effort: "ultra" },
+        "default-judgment": { model: "gpt-6-astra", reasoning_effort: "xhigh" },
         "general-workhorse": { model: "gpt-6-astra", reasoning_effort: "xhigh" },
         "defined-workhorse": { model: "gpt-6-astra", reasoning_effort: "low" }
       }
@@ -1835,7 +1835,7 @@ describe("host-controlled preset tiers", () => {
     expect(result.ok).toBe(true); await tick();
     const workflow = engine.state.workflows[String(result.workflow_id)]!;
     const root = workflow.agents[workflow.root_id]!;
-    const expected = tier ? { model: "gpt-6-astra", reasoning_effort: "ultra" } : { model: "gpt-6.1-sol", reasoning_effort: "high" };
+    const expected = tier ? { model: "gpt-6-astra", reasoning_effort: "xhigh" } : { model: "gpt-6.1-sol", reasoning_effort: "xhigh" };
     expect(workflow.active_tier).toBe(tier ?? "default");
     expect(root.resolved_preset).toEqual(expected);
     expect(app.turnRouting.at(-1)!.preset).toEqual(expected);
@@ -1863,10 +1863,10 @@ describe("host-controlled preset tiers", () => {
     await app.emit(root.thread_id!, firstTurn);
     await engine.hostTool("banana_workflow_send", { workflow_id: workflow.id, agent_id: root.id, message: { type: "resume", body: "Continue at max performance" } });
     await tick();
-    expect(app.turnRouting.at(-1)!.preset).toEqual({ model: "gpt-6-astra", reasoning_effort: "ultra" });
+    expect(app.turnRouting.at(-1)!.preset).toEqual({ model: "gpt-6-astra", reasoning_effort: "xhigh" });
     expect(root.routing_history).toMatchObject([
       { turn_id: firstTurn, tier: "performance-optimized", resolved_preset: { model: "gpt-6-astra", reasoning_effort: "xhigh" } },
-      { turn_id: root.active_turn_id!, tier: "max-performance", resolved_preset: { model: "gpt-6-astra", reasoning_effort: "ultra" } }
+      { turn_id: root.active_turn_id!, tier: "max-performance", resolved_preset: { model: "gpt-6-astra", reasoning_effort: "xhigh" } }
     ]);
     const inspected = await engine.hostTool("banana_agent_inspect", { workflow_id: workflow.id, agent_id: root.id });
     expect((inspected.agent as JsonObject).routing_history).toEqual(root.routing_history);
