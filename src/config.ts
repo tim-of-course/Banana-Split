@@ -15,10 +15,16 @@ const nonempty = (value: unknown, where: string): string => {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${where} must be a nonempty string`);
   return value;
 };
-const expand = (value: string): string => normalize(value.replace(/%([^%]+)%/g, (_, name: string) =>
-  name === "LOCALAPPDATA" && process.platform === "darwin"
-    ? resolve(homedir(), "Library", "Application Support")
-    : process.env[name] ?? `%${name}%`));
+const expand = (value: string): string => normalize(value.replace(/%([^%]+)%/g, (_, name: string) => {
+  if (name === "LOCALAPPDATA") {
+    if (process.platform === "darwin") return resolve(homedir(), "Library", "Application Support");
+    if (process.platform === "linux") {
+      const xdgDataHome = process.env.XDG_DATA_HOME;
+      return xdgDataHome && isAbsolute(xdgDataHome) ? xdgDataHome : resolve(homedir(), ".local", "share");
+    }
+  }
+  return process.env[name] ?? `%${name}%`;
+}));
 
 export function readConfig(path: string): RuntimeConfig {
   if (!existsSync(path)) throw new Error(`Configuration file not found: ${path}`);

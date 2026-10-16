@@ -12,7 +12,9 @@ Thanks for helping improve Banana Split.
 
 ## Development
 
-Banana Split targets Windows 11 x64 and macOS on Apple Silicon and Intel.
+Banana Split targets Windows 11 x64, macOS on Apple Silicon and Intel, and Linux
+x64 with glibc. Linux acceptance targets Ubuntu 24.04; Linux ARM64, Alpine/musl,
+and WSL remain unverified.
 Install Git, Node.js with npm, Bun 1.3 or newer, and a current authenticated
 Codex CLI. See the [quickstart](README.md#quickstart) for installation links.
 From the repository root, run:
@@ -25,13 +27,13 @@ npm run verify
 `npm run verify` checks the TypeScript bundle, runs the test suite, and builds
 a complete plugin marketplace under `dist/bun-<platform>-<architecture>/`.
 The executable is `plugins/banana-split-v1/runtime/banana.exe` inside the Windows
-package and `plugins/banana-split-v1/runtime/banana` inside either macOS package.
+package and `plugins/banana-split-v1/runtime/banana` inside macOS and Linux packages.
 Install from that generated marketplace using the quickstart commands.
 
-Use `npm run build:windows` to cross-build Windows x64, or `npm run build:macos`
-for both Mac architectures. Cross-compilation is not live platform acceptance.
-Linux can cross-build packages, but the runtime and native `npm run verify`
-build target do not support Linux or WSL.
+Use `npm run build:windows` to cross-build Windows x64, `npm run build:macos`
+for both Mac architectures, or `npm run build:linux` for Linux x64.
+Cross-compilation is not live platform acceptance.
+Native `npm run verify` also builds the Linux x64 package on Linux x64.
 
 The historical Windows executable in `distribution/` is tracked with Git LFS.
 You do not need to fetch it for a source build; the build compiles a replacement.

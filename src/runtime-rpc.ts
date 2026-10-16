@@ -41,7 +41,7 @@ export class RuntimeOwner {
           throw error;
         }
       }
-      if (process.platform !== "win32") await removeStaleSocket(address);
+      if (process.platform !== "win32" && process.platform !== "linux") await removeStaleSocket(address);
       await listen(this.lockServer, address, "Another Banana Split runtime already owns this durable data directory");
       await listen(this.server, this.port, "A Banana Split runtime already owns 127.0.0.1:" + this.port, "127.0.0.1");
     } catch (error) {
@@ -85,11 +85,13 @@ export function runtimeOwnerKey(dataDirectory: string): string {
       missing.unshift(basename(ancestor)); ancestor = parent;
     }
   }
-  const canonical = normalize(resolve(ancestor, ...missing)).toLowerCase();
-  return createHash("sha256").update(canonical).digest("hex").slice(0, 32);
+  const canonical = normalize(resolve(ancestor, ...missing));
+  return createHash("sha256").update(process.platform === "linux" ? canonical : canonical.toLowerCase()).digest("hex").slice(0, 32);
 }
 
 function runtimeLockAddress(ownerKey: string): string {
+  // Linux abstract sockets bind atomically and disappear when the owner exits.
+  if (process.platform === "linux") return `\0banana-split-${process.getuid!()}-${ownerKey}`;
   return process.platform === "win32"
     ? "\\\\.\\pipe\\banana-split-" + ownerKey
     : `/tmp/banana-split-${process.getuid!()}-${ownerKey}.sock`;

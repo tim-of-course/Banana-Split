@@ -1,6 +1,6 @@
 # Operating Banana Split
 
-Start with the [quickstart](../README.md) for installation and a first task. This guide covers Windows 11 x64 and macOS. Linux and WSL are unsupported.
+Start with the [quickstart](../README.md) for installation and a first task. This guide covers Windows 11 x64, macOS, and Linux x64 with glibc. Linux acceptance targets Ubuntu 24.04; Linux ARM64, Alpine/musl, and WSL remain unverified.
 
 ## Which configuration file to edit
 
@@ -56,7 +56,7 @@ Reinstalling the plugin does **not** replace a running runtime. Restarting Codex
 
 Replace `12345` with the PID returned by the runtime list. First check that the executable and command line match the runtime you recorded.
 
-On macOS:
+On macOS or Linux:
 
 ```sh
 ps -p 12345 -o pid=,command=
@@ -73,7 +73,7 @@ taskkill /PID 12345 /T /F
 
 The Windows command forcibly stops that process tree, so settle workflows first. For a runtime started in the foreground for diagnosis, use Ctrl+C instead. Confirm the process has exited before reinstalling. There is no `banana stop` command, and uninstalling alone does not stop the runtime. Do not terminate every `codex` or `banana` process by name.
 
-If MCP startup failed and listing is unavailable, identify the listener on your configured loopback port (default `43891`), then inspect its executable. On macOS use `lsof -nP -iTCP:43891 -sTCP:LISTEN`; on Windows use `Get-NetTCPConnection -LocalPort 43891 -State Listen` and inspect its `OwningProcess` with `Get-CimInstance` as above. A listener may belong to another application.
+If MCP startup failed and listing is unavailable, identify the listener on your configured loopback port (default `43891`), then inspect its executable. On macOS use `lsof -nP -iTCP:43891 -sTCP:LISTEN`; on Linux use `ss -ltnp 'sport = :43891'`; on Windows use `Get-NetTCPConnection -LocalPort 43891 -State Listen` and inspect its `OwningProcess` with `Get-CimInstance` as above. A listener may belong to another application.
 
 ### Reinstall from the package
 
@@ -101,7 +101,7 @@ For older installations, remove the transient colliding entry `banana-split@bana
 
 The installer does not add `banana` to `PATH`. Change to the `installedPath` returned by installation, then run the appropriate executable. Replace the angle-bracket placeholders with IDs from the Codex recap.
 
-macOS:
+macOS or Linux:
 
 ```sh
 ./runtime/banana watch <workflow-id> --config ./config/banana.json
@@ -126,7 +126,8 @@ Use `inspect --payloads` only when you need raw task/message payloads. Transcrip
 | Symptom | Next step |
 | --- | --- |
 | `bun`, `npm` or `codex` not found | Install the prerequisites linked in the quickstart, reopen your terminal, and confirm the command is on `PATH`. |
-| `Unsupported build target: bun-linux-x64` or a Linux App Server error | Use native Windows 11 or macOS. A Windows executable cannot run in a Linux/WSL Codex host. |
+| A Windows executable or old Linux build fails on Linux | Install a newly built or released `bun-linux-x64` package on Linux x64 with glibc. Linux ARM64, Alpine/musl, and WSL are unverified. |
+| Linux commands fail to create a sandbox/user namespace | Check [Codex's Linux sandbox prerequisites](https://learn.chatgpt.com/docs/sandboxing#prerequisites): distribution `bubblewrap`, the Ubuntu AppArmor profile where required, and container support for user namespaces. A host-approved command can verify approval routing but does not establish sandbox enforcement. |
 | Marketplace not found | Point at the platform folder containing `.agents/plugins/marketplace.json`, not its `plugins/banana-split-v1` subfolder. Check that extraction preserved hidden files. |
 | Plugin installed but skill/tools missing | Check `codex plugin list`, enable the plugin if needed, restart Codex and begin a new task. Installation does not prove runtime startup works. |
 | A checked-in `banana.exe` is a text file | It is a Git LFS pointer. Build from source or retrieve the LFS object as described in the quickstart. |
@@ -136,7 +137,7 @@ Use `inspect --payloads` only when you need raw task/message payloads. Transcrip
 
 Banana Split is optional for Codex session startup (`required: false` in the packaged `.mcp.json`). Its MCP server connects and lists tools without loading runtime configuration or starting Codex App Server. The first Banana Split tool call starts or reconnects to the runtime. An outdated Codex, invalid configuration, or failed runtime returns a tool error while the host chat stays available.
 
-Tool errors identify the failing stage (`configuration`, `startup`, or `request`) and include recovery guidance. Runtime launches append diagnostics to `runtime.log` in the configured data directory; startup errors include its path and up to 8 KiB of recent output. The default paths are `%LOCALAPPDATA%\BananaSplit\runtime.log` on Windows and `~/Library/Application Support/BananaSplit/runtime.log` on macOS. The log is retained across launches; remove or archive it when the runtime is stopped if it grows large. Foreground launches still print to the terminal.
+Tool errors identify the failing stage (`configuration`, `startup`, or `request`) and include recovery guidance. Runtime launches append diagnostics to `runtime.log` in the configured data directory; startup errors include its path and up to 8 KiB of recent output. The default paths are `%LOCALAPPDATA%\BananaSplit\runtime.log` on Windows, `~/Library/Application Support/BananaSplit/runtime.log` on macOS, and `$XDG_DATA_HOME/BananaSplit/runtime.log` on Linux (defaulting to `~/.local/share/BananaSplit/runtime.log`). The log is retained across launches; remove or archive it when the runtime is stopped if it grows large. Foreground launches still print to the terminal.
 
 After correcting a startup problem, call the tool again in the same chat. Concurrent calls in one MCP connection share a startup attempt; there is no background retry loop. A failed request is never automatically replayed. If a connection drops after dispatch, the response reports `side_effects: "possible"`; inspect retained workflows before repeating a mutation. Startup errors also conservatively report possible effects because runtime recovery can reconcile existing workflows, although the requested tool has not been sent.
 
@@ -155,7 +156,7 @@ Existing installations need a rebuilt/reinstalled package and a fresh host sessi
 If no runtime owns the configured data directory and port, start it in the foreground from the installed plugin directory to reveal startup errors:
 
 ```sh
-# macOS
+# macOS or Linux
 ./runtime/banana runtime --config ./config/banana.json
 ```
 
@@ -186,6 +187,6 @@ codex plugin remove banana-split-v1@banana-split-v1
 codex plugin marketplace remove banana-split-v1
 ```
 
-The default state directory is `%LOCALAPPDATA%\BananaSplit` on Windows and `~/Library/Application Support/BananaSplit` on macOS. The shared configuration's `%LOCALAPPDATA%` placeholder maps to macOS Application Support automatically. Windows state inherits profile ACLs; new macOS state directories use owner-only permissions.
+The default state directory is `%LOCALAPPDATA%\BananaSplit` on Windows, `~/Library/Application Support/BananaSplit` on macOS, and `$XDG_DATA_HOME/BananaSplit` on Linux (defaulting to `~/.local/share/BananaSplit`). The shared configuration's `%LOCALAPPDATA%` placeholder maps to the platform's data directory automatically. Windows state inherits profile ACLs; new macOS and Linux state directories use owner-only permissions.
 
 To remove retained orchestration data, verify the exact configured `data_directory` and delete it manually after the runtime stops. Codex owns agent conversations separately; deleting Banana state does not delete those threads or undo project changes.

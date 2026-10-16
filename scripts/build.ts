@@ -2,7 +2,7 @@ import { chmodSync, cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } fro
 import { resolve } from "node:path";
 
 const target = process.argv[2] ?? `bun-${process.platform === "win32" ? "windows" : process.platform}-${process.arch}`;
-if (!["bun-windows-x64", "bun-darwin-arm64", "bun-darwin-x64"].includes(target)) {
+if (!["bun-windows-x64", "bun-darwin-arm64", "bun-darwin-x64", "bun-linux-x64"].includes(target)) {
   throw new Error(`Unsupported build target: ${target}`);
 }
 const executable = target === "bun-windows-x64" ? "banana.exe" : "banana";

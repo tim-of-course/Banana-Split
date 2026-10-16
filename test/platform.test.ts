@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, symlinkSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
@@ -89,7 +89,7 @@ test("stopping an attached App Server rejects outstanding RPC calls", async () =
     websocket: { message(socket, data) {
       const request = JSON.parse(String(data));
       if (request.id === undefined || request.method === "pending-probe") return;
-      const result = request.method === "initialize" ? { platformOs: process.platform === "darwin" ? "macos" : "windows" }
+      const result = request.method === "initialize" ? { platformOs: process.platform === "darwin" ? "macos" : process.platform === "linux" ? "linux" : "windows" }
         : request.method === "config/read" ? { config: {} } : { data: [], nextCursor: null };
       socket.send(JSON.stringify({ id: request.id, result }));
     } }
@@ -120,7 +120,40 @@ test.skipIf(process.platform !== "darwin")("packaged configuration uses the macO
     .toBe(resolve(homedir(), "Library/Application Support/BananaSplit"));
 });
 
-test.skipIf(process.platform !== "darwin")("simultaneous runtime starts acquire exactly one durable-data owner", async () => {
+test.skipIf(process.platform !== "linux")("packaged configuration uses Linux XDG data directories with a home fallback", () => {
+  const previous = process.env.XDG_DATA_HOME;
+  const custom = resolve(".banana-test", "custom-data");
+  try {
+    for (const value of [custom, undefined, "", "relative-data"]) {
+      if (value === undefined) delete process.env.XDG_DATA_HOME; else process.env.XDG_DATA_HOME = value;
+      expect(readConfig("distribution/plugins/banana-split-v1/config/banana.json").runtime.data_directory)
+        .toBe(resolve(value === custom ? custom : resolve(homedir(), ".local", "share"), "BananaSplit"));
+    }
+  } finally {
+    if (previous === undefined) delete process.env.XDG_DATA_HOME; else process.env.XDG_DATA_HOME = previous;
+  }
+});
+
+test.skipIf(process.platform !== "linux")("explicit data directories remain independent of Linux XDG settings", () => {
+  const previous = process.env.XDG_DATA_HOME;
+  const base = resolve(".banana-test", crypto.randomUUID());
+  const path = `${base}/config.json`;
+  const config = JSON.parse(readFileSync("distribution/plugins/banana-split-v1/config/banana.json", "utf8"));
+  mkdirSync(base, { recursive: true });
+  try {
+    process.env.XDG_DATA_HOME = resolve(base, "xdg");
+    for (const directory of [resolve(base, "explicit"), "relative-data"]) {
+      config.runtime.data_directory = directory;
+      writeFileSync(path, JSON.stringify(config));
+      expect(readConfig(path).runtime.data_directory).toBe(resolve(base, directory));
+    }
+  } finally {
+    if (previous === undefined) delete process.env.XDG_DATA_HOME; else process.env.XDG_DATA_HOME = previous;
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(!["darwin", "linux"].includes(process.platform))("simultaneous runtime starts acquire exactly one durable-data owner", async () => {
   const data = resolve(".banana-test", crypto.randomUUID());
   const children = Array.from({ length: 12 }, () => spawn(process.execPath, ["-e", `import { RuntimeOwner } from './src/runtime-rpc.ts'; const owner = new RuntimeOwner(0, ${JSON.stringify(data)}); process.stdin.once('data', async () => { try { await owner.listen(); console.log('owned') } catch { console.log('denied') } }); console.log('ready'); setInterval(() => {}, 1000);`], { stdio: ["pipe", "pipe", "inherit"] }));
   try {
@@ -151,7 +184,7 @@ test("a pending event poll does not keep a closed runtime process alive", async 
   }
 });
 
-test.skipIf(process.platform !== "darwin")("directory aliases share one runtime owner even before a child directory exists", async () => {
+test.skipIf(!["darwin", "linux"].includes(process.platform))("directory aliases share one runtime owner even before a child directory exists", async () => {
   const base = resolve(".banana-test", crypto.randomUUID());
   mkdirSync(`${base}/data`, { recursive: true }); symlinkSync(`${base}/data`, `${base}/alias`, "dir");
   expect(runtimeOwnerKey(`${base}/data/new`)).toBe(runtimeOwnerKey(`${base}/alias/new`));
@@ -160,6 +193,17 @@ test.skipIf(process.platform !== "darwin")("directory aliases share one runtime 
     await first.listen();
     await expect(second.listen()).rejects.toThrow("already owns this durable data directory");
   } finally { await first.close(); await second.close() }
+});
+
+test.skipIf(process.platform !== "linux")("Linux data directories with different case have independent runtime owners", async () => {
+  const base = resolve(".banana-test", crypto.randomUUID());
+  const upper = new RuntimeOwner(0, `${base}/Data`);
+  const lower = new RuntimeOwner(0, `${base}/data`);
+  expect(upper.ownerKey).not.toBe(lower.ownerKey);
+  try {
+    await upper.listen();
+    await lower.listen();
+  } finally { await upper.close(); await lower.close() }
 });
 
 test("runtime ownership can recover after a process is killed", async () => {

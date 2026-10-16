@@ -1,6 +1,8 @@
 # Banana Split plugin
 
-Current release: **0.1.1 (internal alpha)**. Supported on Windows 11 x64 and macOS (Apple Silicon and Intel). Linux and WSL are not supported.
+Current release: **0.1.1 (internal alpha)**. Supported on Windows 11 x64, macOS (Apple Silicon and Intel), and Linux x64 (glibc). Linux acceptance targets Ubuntu 24.04; Linux ARM64, Alpine/musl, and WSL remain unverified.
+
+Linux requires [Codex's sandbox prerequisites](https://learn.chatgpt.com/docs/sandboxing#prerequisites), including distribution `bubblewrap`, applicable AppArmor setup, and user namespace support. See the [verification evidence](https://github.com/tim-of-course/Banana-Split/blob/main/docs/VERIFICATION.md#linux-x64-port-checks-2026-10-15) for the tested container's sandbox limitation.
 
 Banana Split lets Codex delegate a large task to agents that can create further agents, exchange advice, and review their children's work. It saves workflow state locally and keeps progress in your main Codex conversation.
 
@@ -38,4 +40,4 @@ The MCP server is optional for Codex startup. It starts the runtime on the first
 
 Built packages include `docs/OPERATIONS.md`, `config/banana.schema.json` and `LICENSE`. Use the [online operations guide](https://github.com/tim-of-course/Banana-Split/blob/main/docs/OPERATIONS.md) when browsing this source template. It explains which configuration to edit, how to restart and reinstall, troubleshooting, and removal.
 
-The MCP server launches `runtime/banana.exe` on Windows or `runtime/banana` on macOS with `mcp --config config/banana.json`. The separate CLI provides read-only inspection; it cannot start or cancel workflows. The checked-in Windows executable is a historical Git LFS object; use a newly built or released platform package.
+The MCP server launches `runtime/banana.exe` on Windows or `runtime/banana` on macOS and Linux with `mcp --config config/banana.json`. Linux state defaults to `$XDG_DATA_HOME/BananaSplit`, or `~/.local/share/BananaSplit` when `XDG_DATA_HOME` is unset. Host Computer Use requires a host that provides it. The separate CLI provides read-only inspection; it cannot start or cancel workflows. The checked-in Windows executable is a historical Git LFS object; use a newly built or released platform package.

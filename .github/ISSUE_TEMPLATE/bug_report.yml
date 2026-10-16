@@ -32,7 +32,7 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: Include your OS and architecture (Windows x64, macOS Apple Silicon or Intel), Codex CLI version, installation method, and Bun/Node versions if building from source.
+      description: Include your OS and architecture (Windows x64, macOS Apple Silicon or Intel, or Linux x64 with distro/glibc version), Codex CLI version, installation method, and Bun/Node versions if building from source.
     validations:
       required: true
   - type: textarea

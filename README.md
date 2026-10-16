@@ -4,7 +4,7 @@ Let Codex split a large task among agents that can delegate further, ask each ot
 
 For example, a coordinator can assign implementation and testing to separate agents, ask a reviewer to check the result, and send changes back to the original worker. Each agent has its own Codex thread. Children can start fresh or inherit their parent's completed conversation history.
 
-**Current release: 0.1.1, internal alpha.** Intended for supervised use on **Windows 11 x64 or macOS (Apple Silicon and Intel)**. Linux and WSL are not supported. See the [release notes](docs/releases/0.1.1.md) and [verification guide](docs/VERIFICATION.md) for the limits of the existing evidence.
+**Current release: 0.1.1, internal alpha.** Intended for supervised use on **Windows 11 x64, macOS (Apple Silicon and Intel), or Linux x64 (glibc)**. Linux acceptance targets Ubuntu 24.04; Linux ARM64, Alpine/musl, and WSL remain unverified. See the [release notes](docs/releases/0.1.1.md) and [verification guide](docs/VERIFICATION.md) for the limits of the existing evidence.
 
 ## When to use it
 
@@ -21,6 +21,8 @@ Banana Split starts its runtime when you first use a Banana tool. Startup failur
 ### 1. Check your setup
 
 You need a supported OS and an authenticated [Codex CLI](https://developers.openai.com/codex/cli/) available on `PATH`. Codex Desktop is optional for ordinary coding workflows; host Computer Use requires a host that provides it.
+
+On Linux, install your distribution's `bubblewrap` package and follow [Codex's Linux sandbox prerequisites](https://learn.chatgpt.com/docs/sandboxing#prerequisites), including the AppArmor setup where required on Ubuntu 24.04. Containers must allow the user namespaces needed by the sandbox.
 
 Run these in the terminal you will use for installation:
 
@@ -41,8 +43,9 @@ Check [GitHub Releases](https://github.com/tim-of-course/Banana-Split/releases) 
 | Windows 11 x64 | `banana-split-<version>-windows-x64.tar.gz` | `bun-windows-x64` |
 | Mac with Apple Silicon | `banana-split-<version>-darwin-arm64.tar.gz` | `bun-darwin-arm64` |
 | Mac with Intel | `banana-split-<version>-darwin-x64.tar.gz` | `bun-darwin-x64` |
+| Linux x64 (glibc) | `banana-split-<version>-linux-x64.tar.gz` | `bun-linux-x64` |
 
-Extract the archive in a directory you intend to keep. For example, in PowerShell or a macOS terminal, replace the filename with the downloaded asset:
+Extract the archive in a directory you intend to keep. In PowerShell or a macOS/Linux terminal, replace the filename with the downloaded asset:
 
 ```sh
 tar -xzf banana-split-<version>-<platform>-<architecture>.tar.gz
@@ -89,6 +92,14 @@ codex plugin list
 ```
 
 On Intel macOS, replace `bun-darwin-arm64` with `bun-darwin-x64`.
+
+**Linux x64:**
+
+```sh
+codex plugin marketplace add ./bun-linux-x64
+codex plugin add banana-split-v1@banana-split-v1 --json
+codex plugin list
+```
 
 The install output includes `installedPath`; keep it for troubleshooting. Confirm the plugin is installed and enabled. Restart Codex Desktop, or exit and reopen the CLI, then open a **new task in the project you want to work on**. Codex loads an installed copy of the package; editing the download or source alone does not update that copy. See [changing configuration and updating](docs/OPERATIONS.md#changing-configuration-and-updating).
 
@@ -143,7 +154,7 @@ The selection applies to that workflow. You can later say **"Switch this workflo
 - Agents can write to the exact workflow workspace by default. Network access is disabled. The host resolves approvals using existing user authorization and asks when authorization is unresolved.
 - Managed threads disable native delegation, direct Computer Use, apps, and plugins. Enabled MCP servers declared in the workspace's trusted project configuration can be selected; globally configured servers are not automatically included.
 - Computer Use runs through the main host only when that host can provide it. A request interrupted during execution is not replayed automatically.
-- State stays on your computer until you remove it: `%LOCALAPPDATA%\BananaSplit` on Windows or `~/Library/Application Support/BananaSplit` on macOS.
+- State stays on your computer until you remove it: `%LOCALAPPDATA%\BananaSplit` on Windows, `~/Library/Application Support/BananaSplit` on macOS, or `$XDG_DATA_HOME/BananaSplit` on Linux (defaulting to `~/.local/share/BananaSplit`).
 
 See [configuration, model tiers, updates, recovery and removal](docs/OPERATIONS.md) for the full instructions.
 

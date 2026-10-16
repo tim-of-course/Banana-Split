@@ -15,7 +15,7 @@ const output = resolve("dist/releases");
 rmSync(output, { recursive: true, force: true });
 mkdirSync(output, { recursive: true });
 const checksums: string[] = [];
-for (const target of ["bun-windows-x64", "bun-darwin-arm64", "bun-darwin-x64"]) {
+for (const target of ["bun-windows-x64", "bun-darwin-arm64", "bun-darwin-x64", "bun-linux-x64"]) {
   run([process.execPath, "scripts/build.ts", target]);
   const filename = `banana-split-${version}-${target.slice(4)}.tar.gz`;
   const archive = resolve(output, filename);
@@ -26,7 +26,7 @@ for (const target of ["bun-windows-x64", "bun-darwin-arm64", "bun-darwin-x64"]) 
   checksums.push(`${digest}  ${filename}`);
 }
 writeFileSync(resolve(output, "SHA256SUMS"), checksums.join("\n") + "\n");
-console.log(`Release archives and SHA256SUMS: ${output}\nCross-compilation does not verify live Windows or macOS workflows.`);
+console.log(`Release archives and SHA256SUMS: ${output}\nCross-compilation does not verify live platform workflows.`);
 
 function run(command: string[]): void {
   const result = Bun.spawnSync(command, { stdout: "inherit", stderr: "inherit" });

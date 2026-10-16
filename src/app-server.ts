@@ -72,7 +72,7 @@ export class AppServer {
       clientInfo: { name: "banana_split", title: "Banana Split", version: "0.1.1" },
       capabilities: { experimentalApi: true }
     });
-    if (!["windows", "macos"].includes(String(initialized.platformOs))) throw new Error(`Banana Split requires Windows or macOS App Server, observed ${String(initialized.platformOs)}`);
+    if (!["windows", "macos", "linux"].includes(String(initialized.platformOs))) throw new Error(`Banana Split requires Windows, macOS, or Linux App Server, observed ${String(initialized.platformOs)}`);
     this.notify("initialized", {});
     const config = await this.call("config/read", { includeLayers: false });
     this.effectiveConfig = (config.config && typeof config.config === "object" ? config.config : {}) as JsonObject;

@@ -28,13 +28,13 @@ V1 has no MVP subset or acceptable partial-delivery milestone. It is complete on
 - Lean means the implementation uses the smallest clear state model and the fewest abstractions and branches that satisfy this specification.
 - Feature completeness does not imply broad hardening. V1 supports the stated flows and critical safety boundaries, not every hypothetical input, race, platform variation, or recovery strategy.
 
-The intended V1 operating envelope is one trusted local Windows or macOS user, one main Codex host task, one local Banana runtime, one workspace per workflow, multiple workflows in that runtime, and the current Codex installation on the build and test machine. Hostile multi-tenancy, distributed runtime coordination, high availability, rolling upgrades, legacy compatibility, automated schema migration across released versions, and exhaustive malformed-input recovery are outside V1.
+The intended V1 operating envelope is one trusted local Windows, macOS, or Linux user, one main Codex host task, one local Banana runtime, one workspace per workflow, multiple workflows in that runtime, and the current Codex installation on the build and test machine. Hostile multi-tenancy, distributed runtime coordination, high availability, rolling upgrades, legacy compatibility, automated schema migration across released versions, and exhaustive malformed-input recovery are outside V1.
 
 Within that envelope, failures must be honest and leave inspectable state. Outside it, a concise actionable error or safe stop is preferred to automatic repair, fallback, retry, or speculative edge-case machinery. Broad hardening begins only after explicit owner direction informed by real use.
 
 ### 1.1 Supported product shape
 
-V1 supports Windows 11 x64 and macOS on Apple Silicon and Intel. The installed product contains:
+V1 supports Windows 11 x64, macOS on Apple Silicon and Intel, and Linux x64 with glibc. Linux acceptance targets Ubuntu 24.04; Linux ARM64, Alpine/musl, and WSL remain unverified. Host Computer Use is available only when the main host provides it. The installed product contains:
 
 - A locally installable personal Codex plugin and host skill used from the main Codex task
 - A bundled self-contained runtime for the target platform and Codex App Server adapter
@@ -239,7 +239,7 @@ flowchart LR
     H <-. "advertised host capability" .-> U["Optional Desktop Computer Use"]
 ```
 
-The implementation language, storage technology, and internal process topology are intentionally unspecified. Choose the smallest reliable packaged runtime that fits Windows 11 x64 and macOS. One process per agent is not a product requirement.
+The implementation language, storage technology, and internal process topology are intentionally unspecified. Choose the smallest reliable packaged runtime that fits Windows 11 x64, macOS, and Linux x64 with glibc. One process per agent is not a product requirement.
 
 ## 6. Core concepts
 
@@ -1229,9 +1229,9 @@ A deep descendant calls `banana_request_host(capability: computer_use, ...)`. Af
 
 Deep child results move upward only through direct-parent acceptance. The root cannot finish with unresolved descendants, reviews, advice, or host requests. The final response distinguishes mechanical completion from the root's `success`, `partial`, `blocked`, or `unsuccessful` judgment and retains useful accepted evidence.
 
-### 28.12 Installed Windows and macOS product and state ownership
+### 28.12 Installed product and state ownership
 
-On Windows 11 x64 or macOS, the installed plugin/skill launches or reconnects the single local runtime, starts and polls a workflow from the main Codex task, and exposes the complete host loop. The runtime is the only writer of private durable state. A second runtime start fails clearly, while read-only CLI `watch`, `inspect`, and `transcript` observe the same retained workflows without editing state.
+On Windows 11 x64, macOS, or Linux x64 with glibc, the installed plugin/skill launches or reconnects the single local runtime, starts and polls a workflow from the main Codex task, and exposes the complete host loop for the host's advertised capabilities. The runtime is the only writer of private durable state. A second runtime start fails clearly, while read-only CLI `watch`, `inspect`, and `transcript` observe the same retained workflows without editing state.
 
 ## 29. Verification expectations for the rebuild
 
@@ -1264,9 +1264,11 @@ Focused automated verification must cover:
 - Poll, inspect, transcript pagination, and Desktop/CLI state consistency
 - Normative tool schemas, stable errors, final workflow response, and read-only CLI enforcement
 - Startup failure when the current installed App Server lacks a capability required by the normal product path
-- Single-runtime and single-writer enforcement on Windows 11 x64 and macOS
+- Single-runtime and single-writer enforcement on Windows 11 x64, macOS, and Linux x64 with glibc
 
 One installed end-to-end acceptance test should combine the central claims: from a Windows or macOS Desktop host, a deep workflow creates more than 16 agents over time, never exceeds active capacity, uses fresh and inherited context, asks an advisor, requests and completes real Desktop Computer Use from a descendant, revises a child through parent review, remains inspectable from Desktop and CLI, and survives an ordinary runtime restart without losing identity or accepted evidence.
+
+Linux platform acceptance separately verifies an installed x64 package on Ubuntu 24.04: a coordinator delegates to two reviewers, accepts their submissions, completes the workflow, and retains inspectable results after runtime restart. A bounded write in a scratch workspace verifies Linux sandbox behavior. Record the OS, architecture, Bun version, and Codex version; do not infer Linux host Computer Use availability from runtime acceptance.
 
 Verification should be proportional. Do not add exhaustive permutation tests, fault-injection frameworks, or handlers for hypothetical platform behavior unless they protect a core authority/data invariant or are required by an acceptance scenario.
 
