@@ -6,7 +6,7 @@ Let Claude and Codex split a large task among agents that can delegate further, 
 
 ## How it works
 
-- **Every agent is a full thread.** Agents are top-level threads, not native subagents, so each can be named, inspected, resumed and forked. A child either starts fresh with a standalone brief or forks its parent's thread to inherit its context.
+- **Every agent is a full thread.** Agents are full threads, not native subagents, so each can be named, inspected, resumed and forked. A child either starts fresh with a standalone brief or forks its parent's thread to inherit its context.
 - **Agents message each other by thread ID.** Every message carries the sender's role and thread ID and the directory path, so any agent can reply to any other.
 - **Delegation is recursive.** Any agent can create children, as deep or broad as the work calls for.
 - **Parents review.** A child submits its result to its parent, which either accepts it or sends revision feedback.

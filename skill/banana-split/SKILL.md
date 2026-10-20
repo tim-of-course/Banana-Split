@@ -9,10 +9,11 @@ A Banana Split workflow is a tree of agents. Each agent is its own **full thread
 
 ## Threads, not subagents
 
-- Every agent is a full, top-level thread, started with whatever thread tools this environment offers: T3 thread launch or fork, Codex threads, Claude sessions, or a CLI.
+- Every agent is a full thread, started with whatever thread tools this environment offers: T3 delegation, launch or fork, Codex threads, Claude sessions, or a CLI.
 - Banana Split **replaces** the built-in subagent systems for any delegation, whether or not the user names Banana Split. Do **not** use the Codex subagent tools (`spawn_agent`, `send_message`, `wait_agent` and similar) or Claude's Agent/Task subagents, unless the user explicitly asks for native or standard subagents.
 - If full threads can't be started in this environment, tell the user and ask how to proceed. Don't silently fall back to native subagents.
-- Do not use one-shot delegation that can't be messaged afterward, such as T3's `delegate_task`, for agents that need back-and-forth, review or later contact. A one-shot tool is fine only for fire-and-forget work where the returned result is all that's needed.
+- Do not use one-shot delegation that can't be messaged afterward for agents that need back-and-forth, review or later contact. A one-shot tool is fine only for fire-and-forget work where the returned result is all that's needed.
+- **In T3, start children with `delegate_task`.** Its children are full threads that can be messaged by thread ID, can delegate further, and stay out of the user's sidebar. Use `t3_thread_launch` only when a child should appear as its own top-level thread.
 - **Context source.** For a fresh child, start a new thread with a standalone brief. For a child that should inherit context, *fork* the parent's thread; don't paste a summary into a fresh one. A fork carries the parent's model unless the forking tool lets you change it.
 - Mix providers freely when the environment allows it. Choose whatever model suits the assignment (see [Tiers](#tiers)).
 
