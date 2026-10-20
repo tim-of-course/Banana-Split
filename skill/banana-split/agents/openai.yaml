@@ -1,0 +1,9 @@
+interface:
+  display_name: "Banana Split"
+  short_description: "Run recursive multi-thread agent workflows"
+  icon_small: "./assets/icon-small.svg"
+  icon_large: "./assets/icon.png"
+  brand_color: "#302522"
+  default_prompt: "Use $banana-split to complete this task as a recursive multi-thread workflow."
+policy:
+  allow_implicit_invocation: true

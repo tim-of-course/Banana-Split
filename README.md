@@ -1,12 +1,107 @@
 # Banana Split
 
+Let Claude and Codex split a large task among agents that can delegate further, message each other, ask for advice, and review their children's work before returning a result. You stay in one conversation while the agents coordinate through a shared directory file in your workspace.
+
+**Current version: 0.2.0, the skill edition.** Banana Split is now a single skill, [`skill/banana-split`](skill/banana-split/SKILL.md), that works in both Claude Code and Codex. It needs no runtime, MCP server or plugin package. It replaces the 0.1.x runtime plugin, which is documented under [Legacy runtime plugin (0.1.x)](#legacy-runtime-plugin-01x) below.
+
+## How it works
+
+- **Every agent is a full thread.** Agents are top-level threads, not native subagents, so each can be named, inspected, resumed and forked. A child either starts fresh with a standalone brief or forks its parent's thread to inherit its context.
+- **Agents message each other by thread ID.** Every message carries the sender's role and thread ID and the directory path, so any agent can reply to any other.
+- **Delegation is recursive.** Any agent can create children, as deep or broad as the work calls for.
+- **Parents review.** A child submits its result to its parent, which either accepts it or sends revision feedback.
+- **One directory file records the workflow.** `<workspace>/.banana-split/<workflow-id>/directory.md` is an append-only log of every agent's thread ID, parent, role, model and status. The host reads it for progress updates and the final recap. A new session can read it to pick up where the last one left off.
+- **Providers mix freely.** Tiers combine Claude and Codex models. A workflow can run Claude and Codex threads together wherever the environment can start both, for example in T3 Code.
+
+**Installing the skill changes delegation defaults.** It activates whenever you ask for subagents, parallel workers or delegation, even if you don't name Banana Split. It replaces both Codex subagents and Claude's Agent/Task subagents. To use the native mechanism instead, say **"use native subagents"**.
+
+## Install
+
+Copy the `skill/banana-split` folder into each tool's user skills directory:
+
+| Tool | Destination |
+| --- | --- |
+| Claude Code | `~/.claude/skills/banana-split` |
+| Codex | `~/.agents/skills/banana-split` |
+
+From a clone of this repository:
+
+```sh
+cp -r skill/banana-split ~/.claude/skills/
+cp -r skill/banana-split ~/.agents/skills/
+```
+
+On Windows PowerShell:
+
+```powershell
+Copy-Item -Recurse -Force skill\banana-split "$HOME\.claude\skills\"
+Copy-Item -Recurse -Force skill\banana-split "$HOME\.agents\skills\"
+```
+
+Start a new session afterward. The installed copies don't update themselves; copy the folder again after pulling changes.
+
+### Upgrading from the 0.1.x plugin
+
+Remove the plugin and its marketplace entry before installing the skill, so the two don't compete:
+
+```sh
+codex plugin remove banana-split-v1@banana-split-v1
+codex plugin marketplace remove banana-split-v1
+```
+
+If the removal reports "Access is denied", a `banana` runtime process from the plugin is still running. Stop it and try again. Your old workflow data stays in the plugin's data directory until you delete it.
+
+## Using it
+
+Give the agent your objective, the exact workspace and any constraints. For example:
+
+- "Use Banana Split to implement this feature, with separate implementation and review work."
+- "Use the cheap Banana Split tier to review these modules. Do not change files."
+- "Show the status of workflow `<workflow-id>`."
+- "Freeze new spawning for this workflow." Existing work continues.
+- "Cancel this workflow." Cancellation does not undo changes already made.
+
+For a first run, try:
+
+```text
+Use $banana-split to review this project's onboarding documentation.
+Keep it read-only. Have one coordinator delegate to two fresh reviewers:
+one for installation instructions and one for first-use examples.
+Return three concrete improvements, the workflow ID, and the directory path.
+```
+
+The final recap reports the outcome, workflow ID, directory path, tiers used, agent counts, models and efforts, and notable events such as revisions or failures.
+
+### Tiers
+
+Each tier maps four agent presets to a model and reasoning effort. Agents choose a preset for each assignment, and the tier decides the model. Say "use the cheap tier", "high performance" or "max performance"; with no selection, `default` applies. The coordinator uses `default-judgment`.
+
+| Preset | `cost-optimized` | `default` | `performance-optimized` | `max-performance` |
+| --- | --- | --- | --- | --- |
+| Complex judgment | Opus 5.5 · medium | Opus 5.5 · medium | Opus 5.5 · high | Opus 5.5 · xhigh |
+| Default judgment | Sol · high | Sol · xhigh | Opus 5.5 · medium | Opus 5.5 · high |
+| General workhorse | Sol · low | Sol · medium | Opus 5.5 · low | Opus 5.5 · medium |
+| Defined workhorse | Luna · xhigh | Sol · low | Sol · medium | Sol · high |
+
+**Opus 5.5** is `claude-opus-5-5`, **Sol** is `gpt-6.1-sol`, and **Luna** is `gpt-6-luna`. Every tier includes Claude, so complex-judgment work needs an environment that can start Claude threads. If a model isn't available, the agent says so and asks rather than substituting another. See [references/tiers.md](skill/banana-split/references/tiers.md) for preset guidance.
+
+### Limits
+
+- Banana Split is now a protocol the agents follow, not a runtime that enforces it. There is no built-in concurrency cap, permission ceiling or crash-recovery engine. The directory file is the record, and the agents are trusted to keep it current.
+- Agents share the workspace. Briefs assign file ownership, but nothing prevents conflicting edits.
+- Native tool approvals still go to you through your normal approval UI.
+
+## Legacy runtime plugin (0.1.x)
+
+The 0.1.x releases shipped Banana Split as a Codex plugin with a bundled local runtime and MCP tools. The source (`src/`), packaging (`scripts/`, `distribution/`) and documentation (`docs/`) remain in this repository for reference. New installs should use the skill above.
+
 Let Codex split a large task among agents that can delegate further, ask each other for advice, and review their children's work before returning a result. You stay in one Codex conversation while Banana Split tracks the work and saves its progress locally.
 
 For example, a coordinator can assign implementation and testing to separate agents, ask a reviewer to check the result, and send changes back to the original worker. Each agent has its own Codex thread. Children can start fresh or inherit their parent's completed conversation history.
 
-**Current release: 0.1.1, internal alpha.** Intended for supervised use on **Windows 11 x64, macOS (Apple Silicon and Intel), or Linux x64 (glibc)**. Linux acceptance targets Ubuntu 24.04; Linux ARM64, Alpine/musl, and WSL remain unverified. See the [release notes](docs/releases/0.1.1.md) and [verification guide](docs/VERIFICATION.md) for the limits of the existing evidence.
+**Last plugin release: 0.1.1, internal alpha.** Intended for supervised use on **Windows 11 x64, macOS (Apple Silicon and Intel), or Linux x64 (glibc)**. Linux acceptance targets Ubuntu 24.04; Linux ARM64, Alpine/musl, and WSL remain unverified. See the [release notes](docs/releases/0.1.1.md) and [verification guide](docs/VERIFICATION.md) for the limits of the existing evidence.
 
-## When to use it
+### When to use it
 
 Banana Split adds a persistent workflow record, a runtime-wide concurrency limit, recursive delegation, and explicit parent review to a Codex task. It is useful for work with several phases or many related assignments whose messages, reviews, and partial results need to remain inspectable across a runtime restart.
 
@@ -16,9 +111,9 @@ For a small task that only needs a helper, native Codex subagents may be suffici
 
 Banana Split starts its runtime when you first use a Banana tool. Startup failures, including an outdated Codex CLI, are reported by that tool and leave ordinary Codex chats available. See [startup troubleshooting](docs/OPERATIONS.md#runtime-startup-and-recovery) for diagnostic logs and recovery.
 
-## Quickstart
+### Quickstart
 
-### 1. Check your setup
+#### 1. Check your setup
 
 You need a supported OS and an authenticated [Codex CLI](https://developers.openai.com/codex/cli/) available on `PATH`. Codex Desktop is optional for ordinary coding workflows; host Computer Use requires a host that provides it.
 
@@ -34,7 +129,7 @@ codex plugin --help
 
 If you are signed out, run `codex login`. If `plugin` is not recognized, update Codex using its installation instructions. Your account must also support the models and reasoning levels in the [packaged configuration](distribution/plugins/banana-split-v1/config/banana.json); see [model configuration](docs/OPERATIONS.md#models-and-preset-tiers) if startup reports `preset_unavailable`.
 
-### 2. Get a package
+#### 2. Get a package
 
 Check [GitHub Releases](https://github.com/tim-of-course/Banana-Split/releases) for a platform archive. Release packaging is provided by this repository, but an archive is available only after a maintainer publishes it. If the release has no matching asset, use the source-build instructions below. GitHub's automatic **Source code** downloads are not runnable plugin packages.
 
@@ -71,7 +166,7 @@ The old Windows executable under `distribution/` uses [Git LFS](https://git-lfs.
 
 </details>
 
-### 3. Install in Codex
+#### 3. Install in Codex
 
 From the directory containing your extracted platform folder, run the commands for your computer. For a source build, first run `cd dist` from the repository root.
 
@@ -103,7 +198,7 @@ codex plugin list
 
 The install output includes `installedPath`; keep it for troubleshooting. Confirm the plugin is installed and enabled. Restart Codex Desktop, or exit and reopen the CLI, then open a **new task in the project you want to work on**. Codex loads an installed copy of the package; editing the download or source alone does not update that copy. See [changing configuration and updating](docs/OPERATIONS.md#changing-configuration-and-updating).
 
-### 4. Run a small first task
+#### 4. Run a small first task
 
 Paste this into the new Codex task:
 
@@ -119,7 +214,7 @@ Codex should start a workflow, report progress, review the two submissions, and 
 
 If the skill or tools are missing, confirm the plugin is enabled and start a new Codex session. If startup fails, use the [troubleshooting guide](docs/OPERATIONS.md#troubleshooting). A completed workflow describes the execution state; assess the actual findings before treating the task as successful.
 
-## Everyday use
+### Everyday use
 
 Give Codex your objective, the exact workspace, and any constraints. For example:
 
@@ -131,7 +226,7 @@ Give Codex your objective, the exact workspace, and any constraints. For example
 
 The plugin provides **one host skill and nine host MCP tools**. The main Codex task coordinates your request through them. Managed agents use separate coordination tools and share the specified workspace; they do not get separate working copies automatically. There is no dashboard. Optional terminal inspection is covered in [the operations guide](docs/OPERATIONS.md#read-only-cli).
 
-### Choosing a tier for a workflow
+#### Choosing a tier for a workflow
 
 Include the tier in your request: **"Use the high performance Banana Split tier to review this feature."** Codex selects `performance-optimized` before the coordinator's first turn. Say **"Use the max performance Banana Split tier"** for `max-performance`, **"use the cheap tier"** for `cost-optimized`, or **"use the default tier"** for `default`. Exact configured tier names also work. With no selection, the shipped configuration uses `default`.
 
@@ -148,7 +243,7 @@ Each tier provides four agent presets. Agents choose a preset for their assignme
 
 The selection applies to that workflow. You can later say **"Switch this workflow to max-performance."** New agents and subsequent turns use the new tier; already-running turns keep their settings. The final recap includes all tiers used, any switches or custom catalog overrides, and model/effort counts with the root coordinator separate from subagents. It distinguishes recorded configuration from model use confirmed by Codex when confirmation is available. See [model configuration](docs/OPERATIONS.md#models-and-preset-tiers) to customize the catalog.
 
-## Defaults to know
+### Defaults to know
 
 - Up to **16 model turns can run at once across all workflows**. This is not a total-agent or spending limit: depth and agent population are unbounded. Start with a small task and reduce concurrency in the configuration if needed.
 - Agents can write to the exact workflow workspace by default. Network access is disabled. The host resolves approvals using existing user authorization and asks when authorization is unresolved.
@@ -160,16 +255,15 @@ See [configuration, model tiers, updates, recovery and removal](docs/OPERATIONS.
 
 ## Documentation and contributing
 
-- [Operations guide](docs/OPERATIONS.md): configuration, restart, inspection and troubleshooting.
-- [Host skill](distribution/plugins/banana-split-v1/skills/banana-split/SKILL.md): the instructions Codex follows.
-- [V1 specification](docs/BANANA_SPLIT_V1_SPEC.md): the normative design and tool contract for implementers.
-- [Verification guide](docs/VERIFICATION.md): how to interpret the historical test reports.
-- [Contributing](CONTRIBUTING.md) and [release packaging](docs/RELEASING.md).
+- [Skill](skill/banana-split/SKILL.md): the instructions Claude and Codex follow.
+- [Tiers](skill/banana-split/references/tiers.md): presets and the tier table.
+- Legacy plugin: [operations guide](docs/OPERATIONS.md), [host skill](distribution/plugins/banana-split-v1/skills/banana-split/SKILL.md), [V1 specification](docs/BANANA_SPLIT_V1_SPEC.md), [verification guide](docs/VERIFICATION.md) and [release packaging](docs/RELEASING.md).
+- [Contributing](CONTRIBUTING.md).
 - [Security reporting](SECURITY.md).
 
 ## Versioning and license
 
-`0.1.0` is the initial internal alpha; beta begins at `0.5.0`, and `1.0.0` is the first stable release. During `0.x`, patch versions cover fixes and minor versions cover meaningful features or breaking changes. From `1.0.0`, use [Semantic Versioning](https://semver.org/). Breaking changes belong in release notes.
+`0.1.0` is the initial internal alpha and `0.2.0` introduced the skill edition; beta begins at `0.5.0`, and `1.0.0` is the first stable release. During `0.x`, patch versions cover fixes and minor versions cover meaningful features or breaking changes. From `1.0.0`, use [Semantic Versioning](https://semver.org/). Breaking changes belong in release notes.
 
 Minor versions are integers: `0.10.0` follows `0.9.0` if needed. Local builds may append `+codex.<timestamp>` metadata. The `banana-split-v1` plugin ID, V1 specification, and configuration/state schema versions are independent of release numbering.
 
