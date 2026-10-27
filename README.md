@@ -78,12 +78,12 @@ Each tier maps four agent presets to a model and reasoning effort. Agents choose
 
 | Preset | `cost-optimized` | `default` | `performance-optimized` | `max-performance` |
 | --- | --- | --- | --- | --- |
-| Complex judgment | Opus 5.5 · medium | Opus 5.5 · medium | Opus 5.5 · high | Opus 5.5 · xhigh |
-| Default judgment | Sol · high | Sol · xhigh | Opus 5.5 · medium | Opus 5.5 · high |
-| General workhorse | Sol · low | Sol · medium | Opus 5.5 · low | Opus 5.5 · medium |
-| Defined workhorse | Luna · xhigh | Sol · low | Sol · medium | Sol · high |
+| Complex judgment | Sonnet 5.5 · high | Opus 5.5 · medium | Opus 5.5 · high | Opus 5.5 · xhigh |
+| Default judgment | Terra · high | Sol · medium | Opus 5.5 · medium | Opus 5.5 · high |
+| General workhorse | Terra · medium | Terra · high | Sol · medium | Opus 5.5 · medium |
+| Defined workhorse | Terra · low | Terra · medium | Terra · high | Sol · medium |
 
-**Opus 5.5** is `claude-opus-5-5`, **Sol** is `gpt-6.1-sol`, and **Luna** is `gpt-6-luna`. Every tier includes Claude, so complex-judgment work needs an environment that can start Claude threads. If a model isn't available, the agent says so and asks rather than substituting another. See [references/tiers.md](skill/banana-split/references/tiers.md) for preset guidance.
+**Opus 5.5** is `claude-opus-5-5`, **Sonnet 5.5** is `claude-sonnet-5-5`, **Sol** is `gpt-6.1-sol`, and **Terra** is `gpt-6.1-terra`. Every tier includes Claude, so complex-judgment work needs an environment that can start Claude threads. If a model isn't available, the agent says so and asks rather than substituting another. See [references/tiers.md](skill/banana-split/references/tiers.md) for preset guidance.
 
 ### Limits
 

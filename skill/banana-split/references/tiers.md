@@ -15,10 +15,10 @@ Tiers mix Claude and Codex models. Start each thread on the provider its model b
 
 | Preset | `cost-optimized` | `default` | `performance-optimized` | `max-performance` |
 | --- | --- | --- | --- | --- |
-| `complex-judgment` | claude-opus-5-5 · medium | claude-opus-5-5 · medium | claude-opus-5-5 · high | claude-opus-5-5 · xhigh |
-| `default-judgment` | gpt-6.1-sol · high | gpt-6.1-sol · xhigh | claude-opus-5-5 · medium | claude-opus-5-5 · high |
-| `general-workhorse` | gpt-6.1-sol · low | gpt-6.1-sol · medium | claude-opus-5-5 · low | claude-opus-5-5 · medium |
-| `defined-workhorse` | gpt-6-luna · xhigh | gpt-6.1-sol · low | gpt-6.1-sol · medium | gpt-6.1-sol · high |
+| `complex-judgment` | claude-sonnet-5-5 · high | claude-opus-5-5 · medium | claude-opus-5-5 · high | claude-opus-5-5 · xhigh |
+| `default-judgment` | gpt-6.1-terra · high | gpt-6.1-sol · medium | claude-opus-5-5 · medium | claude-opus-5-5 · high |
+| `general-workhorse` | gpt-6.1-terra · medium | gpt-6.1-terra · high | gpt-6.1-sol · medium | claude-opus-5-5 · medium |
+| `defined-workhorse` | gpt-6.1-terra · low | gpt-6.1-terra · medium | gpt-6.1-terra · high | gpt-6.1-sol · medium |
 
 ## Rules
 
