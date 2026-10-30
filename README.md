@@ -4,6 +4,8 @@ Banana Split is a standalone skill for **optimized deep multi-agent dynamic work
 
 Banana Split was previously a Codex plugin. The current skill can work with any agent system in an environment that can start and message independent threads, including across systems such as Claude Code and Codex. It needs no Banana Split plugin, runtime, or MCP server. Available thread tools and models depend on your environment.
 
+Banana Split works best in **T3 Code** for better thread management and cross-agent orchestration. You can also use it elsewhere when your environment supports the required threads and messaging.
+
 ## Install
 
 Clone the repository, then copy the skill folder to the user skills directory for the tools you use. Run these commands from the cloned repository:
