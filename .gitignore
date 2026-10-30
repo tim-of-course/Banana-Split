@@ -1,10 +1,11 @@
-node_modules/
-.node_modules-junction/
-dist/
-.protocol-schema/
+.banana-split/
 .banana-test/
 .deps/
 .manual-cache/
+.node_modules-junction/
+.protocol-schema/
+assets/
+dist/
+node_modules/
+output/
 *.log
-/output/branding/
-/assets/branding/*.zip
