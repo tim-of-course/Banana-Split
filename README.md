@@ -1,8 +1,8 @@
 # Banana Split
 
-Banana Split is a skill for coordinating work across independent agent threads. Agents can delegate, message each other, and review their children's work. A shared directory file records the workflow in your workspace.
+Banana Split is a standalone skill for **optimized deep multi-agent dynamic workflows**, within or across agent systems. Agents coordinate through independent threads: they can delegate recursively, message each other, and review their children's work. A shared directory file records the workflow in your workspace.
 
-The skill works with Claude Code and Codex in environments that can start and message independent threads. It needs no Banana Split runtime, plugin, or MCP server. The available thread tools and models depend on your environment.
+Banana Split was previously a Codex plugin. The current skill can work with any agent system in an environment that can start and message independent threads, including across systems such as Claude Code and Codex. It needs no Banana Split plugin, runtime, or MCP server. Available thread tools and models depend on your environment.
 
 ## Install
 
@@ -48,7 +48,7 @@ For example:
 
 > Use Banana Split to review this project's onboarding documentation. Keep it read-only and return the most useful improvements.
 
-The skill records workflow progress under `.banana-split/` in the workspace. Its [instructions](skill/banana-split/SKILL.md) explain the workflow, and [model tiers](skill/banana-split/references/tiers.md) list the available presets. If the environment cannot start the required threads or models, the agent will tell you.
+The skill records workflow progress under `.banana-split/` in the workspace. Its [instructions](skill/banana-split/SKILL.md) explain the workflow, and [model tiers](skill/banana-split/references/tiers.md) list the mixed-provider presets. Optional [Codex-only](tier-options/codex-only.md) and [Claude-only](tier-options/claude-only.md) tier files are available to download and provide as custom tier definitions. If the environment cannot start the required threads or models, the agent will tell you.
 
 ## License
 
