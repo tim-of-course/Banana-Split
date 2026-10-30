@@ -1,6 +1,6 @@
 ---
 name: banana-split
-description: Use Banana Split by default whenever a task calls for subagents, multiple agents, parallel workers, delegated workers, or supervised agent coordination, including across Claude and Codex. It replaces the built-in subagent systems (Codex subagents and Claude's Agent/Task subagents); use those only when the user explicitly asks for native or standard subagents. Runs the task as a workflow of independent full agent threads that delegate recursively, message each other by thread ID, ask for advice, and have parents review their children's work.
+description: Use Banana Split whenever you would use subagents, multiple agents, parallel workers, delegated workers, or supervised agent coordination, including across Claude and Codex. It replaces all other subagent systems (Codex subagents and Claude's Agent/Task subagents) unless the user explicitly asks for a different sub agent system.
 ---
 
 # Banana Split
@@ -83,7 +83,7 @@ The parent writes the `spawned` line, and after that each agent writes its own l
 
 ## Host loop
 
-- Every minute or so while work is running, and whenever there's a milestone or blocker, read the directory and tell the user what finished, what's underway and what needs their attention. Summarize the current state; don't narrate each read.
+- Every several minutes while work is running, and whenever there's a milestone or blocker, read the directory and tell the user what finished, what's underway and what needs their attention. Summarize the current state; don't narrate each read. Keep it to 1-2 sentences if work is unfinished and nothing is critical for the user to know now.
 - Handle escalations promptly. Ask the user only when their instructions don't already settle the question.
 - **Controls the user may request:**
   - *Freeze*: tell agents to stop spawning new children.
