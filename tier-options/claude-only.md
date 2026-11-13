@@ -4,7 +4,8 @@ Use these tiers when the user requests Claude-only agents. Preset meanings and t
 
 | Preset | `cost-optimized` | `default` | `performance-optimized` | `max-performance` |
 | --- | --- | --- | --- | --- |
-| `complex-judgment` | claude-sonnet-5-5 · high | claude-sonnet-5-5 · high | claude-opus-5-5 · high | claude-opus-5-5 · xhigh |
-| `default-judgment` | claude-sonnet-5-5 · high | claude-sonnet-5-5 · high | claude-opus-5-5 · medium | claude-opus-5-5 · high |
-| `general-workhorse` | claude-sonnet-5-5 · medium | claude-sonnet-5-5 · medium | claude-sonnet-5-5 · high | claude-opus-5-5 · medium |
-| `defined-workhorse` | claude-sonnet-5-5 · low | claude-sonnet-5-5 · medium | claude-sonnet-5-5 · high | claude-opus-5-5 · medium |
+| `complex-judgment` | claude-opus-5-5 · medium | claude-fable-5-2 · low | claude-fable-5-2 · medium | claude-fable-5-2 · high |
+| `default-judgment` | claude-opus-5-5 · medium | claude-opus-5-5 · medium | claude-opus-5-5 · high | claude-opus-5-5 · high |
+| `general-workhorse` | claude-sonnet-5-5 · high | claude-opus-5-5 · medium | claude-opus-5-5 · high | claude-opus-5-5 · xhigh |
+| `defined-workhorse` | claude-sonnet-5-5 · medium | claude-sonnet-5-5 · high | claude-opus-5-5 · medium | claude-opus-5-5 · high |
+| `code-review` | claude-sonnet-5-5 · high | claude-opus-5-5 · medium | claude-opus-5-5 · high | claude-opus-5-5 · xhigh |
