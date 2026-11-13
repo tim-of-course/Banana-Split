@@ -104,4 +104,8 @@ Alongside the answer to the user's task, include:
 
 ## Tiers
 
-Each tier maps four presets to a model and reasoning effort. The parent picks a preset to suit the assignment, and the tier decides the model. With no selection, use `default`. Map "cheap" or "cost optimized" to `cost-optimized`, "high performance" to `performance-optimized`, and "max" or "maximum performance" to `max-performance`. Tiers mix Claude and Codex models. The table and preset guidance are in [references/tiers.md](references/tiers.md). The root coordinator uses `default-judgment` unless the user says otherwise.
+Each tier maps five presets to a model and reasoning effort. The parent picks a preset to suit the assignment, and the tier decides the model. With no selection, use `default`. Map "cheap" or "cost optimized" to `cost-optimized`, "high performance" to `performance-optimized`, and "max" or "maximum performance" to `max-performance`. Tiers mix Claude and Codex models. The table and preset guidance are in [references/tiers.md](references/tiers.md). The root coordinator uses `default-judgment` unless the user says otherwise.
+
+GPT models (Terra, Sol, and Astra) are thorough and good at coding and cheap and are great at computer/browser use for verification but are bad at making product and UI/UX decisions.
+
+Claude models are more expensive and a little less thorough but are much better at judging what is important and making product/ui/ux decisions.

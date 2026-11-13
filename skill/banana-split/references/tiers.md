@@ -8,6 +8,7 @@
 | `default-judgment` | Default for judgment calls, advisor work, coordination, and complex work |
 | `general-workhorse` | Less-defined workhorse work, including complex or critical tasks |
 | `defined-workhorse` | Well-defined workhorse tasks, low-cost bulk work, or implementation paired with a judgment-tier advisor |
+| `code-review` | Code review |
 
 ## Tiers
 
@@ -15,10 +16,11 @@ Tiers mix Claude and Codex models. Start each thread on the provider its model b
 
 | Preset | `cost-optimized` | `default` | `performance-optimized` | `max-performance` |
 | --- | --- | --- | --- | --- |
-| `complex-judgment` | claude-sonnet-5-5 · high | claude-sonnet-5-5 · high | claude-opus-5-5 · high | claude-opus-5-5 · xhigh |
-| `default-judgment` | gpt-6.1-terra · high | gpt-6.1-terra · high | claude-opus-5-5 · medium | claude-opus-5-5 · high |
-| `general-workhorse` | gpt-6.1-terra · medium | gpt-6.1-terra · medium | gpt-6.1-sol · medium | claude-opus-5-5 · medium |
-| `defined-workhorse` | gpt-6.1-terra · low | gpt-6.1-terra · medium | gpt-6.1-terra · high | gpt-6.1-sol · medium |
+| `complex-judgment` | claude-opus-5-5 · medium | claude-fable-5-2 · low | claude-fable-5-2 · medium | claude-fable-5-2 · high |
+| `default-judgment` | claude-opus-5-5 · medium | claude-opus-5-5 · medium | claude-opus-5-5 · high | claude-opus-5-5 · high |
+| `general-workhorse` | gpt-6.1-terra · high | gpt-6.1-sol · medium | gpt-6.1-sol · high | gpt-6-astra · xhigh |
+| `defined-workhorse` | gpt-6.1-terra · medium | gpt-6.1-sol · low | gpt-6.1-sol · medium | gpt-6-astra · medium |
+| `code-review` | gpt-6.1-sol · medium | gpt-6.1-sol · high | gpt-6.1-sol · xhigh | gpt-6-astra · xhigh |
 
 ## Rules
 
