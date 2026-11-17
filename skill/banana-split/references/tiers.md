@@ -18,9 +18,9 @@ Tiers mix Claude and Codex models. Start each thread on the provider its model b
 | --- | --- | --- | --- | --- |
 | `complex-judgment` | claude-opus-5-5 · medium | claude-fable-5-2 · low | claude-fable-5-2 · medium | claude-fable-5-2 · high |
 | `default-judgment` | claude-opus-5-5 · medium | claude-opus-5-5 · medium | claude-opus-5-5 · high | claude-opus-5-5 · high |
-| `general-workhorse` | gpt-6.1-terra · high | gpt-6.1-sol · medium | gpt-6.1-sol · high | gpt-6-astra · xhigh |
-| `defined-workhorse` | gpt-6.1-terra · medium | gpt-6.1-sol · low | gpt-6.1-sol · medium | gpt-6-astra · medium |
-| `code-review` | gpt-6.1-sol · medium | gpt-6.1-sol · high | gpt-6.1-sol · xhigh | gpt-6-astra · xhigh |
+| `general-workhorse` | gpt-6.1-terra · high | gpt-6.2-sol · medium | gpt-6.2-sol · high | gpt-6.2-astra · xhigh |
+| `defined-workhorse` | gpt-6.1-terra · medium | gpt-6.2-sol · low | gpt-6.2-sol · medium | gpt-6.2-astra · medium |
+| `code-review` | gpt-6.2-sol · medium | gpt-6.2-sol · high | gpt-6.2-sol · xhigh | gpt-6.2-astra · xhigh |
 
 ## Rules
 
