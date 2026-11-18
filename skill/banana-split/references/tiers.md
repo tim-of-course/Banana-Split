@@ -16,11 +16,11 @@ Tiers mix Claude and Codex models. Start each thread on the provider its model b
 
 | Preset | `cost-optimized` | `default` | `performance-optimized` | `max-performance` |
 | --- | --- | --- | --- | --- |
-| `complex-judgment` | claude-opus-5-5 · medium | claude-fable-5-2 · low | claude-fable-5-2 · medium | claude-fable-5-2 · high |
+| `complex-judgment` | claude-opus-5-5 · medium | claude-fable-5-2 · medium (or claude-opus-5-5 · high if Fable is unavailable) | claude-fable-5-2 · medium | claude-fable-5-2 · high |
 | `default-judgment` | claude-opus-5-5 · medium | claude-opus-5-5 · medium | claude-opus-5-5 · high | claude-opus-5-5 · high |
-| `general-workhorse` | gpt-6.1-terra · high | gpt-6.2-sol · medium | gpt-6.2-sol · high | gpt-6.2-astra · xhigh |
+| `general-workhorse` | gpt-6.1-terra · high | gpt-6.2-sol · medium | gpt-6.2-astra · medium | gpt-6.2-astra · high |
 | `defined-workhorse` | gpt-6.1-terra · medium | gpt-6.2-sol · low | gpt-6.2-sol · medium | gpt-6.2-astra · medium |
-| `code-review` | gpt-6.2-sol · medium | gpt-6.2-sol · high | gpt-6.2-sol · xhigh | gpt-6.2-astra · xhigh |
+| `code-review` | gpt-6.2-sol · medium | gpt-6.2-sol · high | gpt-6.2-astra · high | gpt-6.2-astra · xhigh |
 
 ## Rules
 
